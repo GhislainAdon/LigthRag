@@ -16,7 +16,16 @@
   <a href="https://discord.com/invite/VuXuf29EUj">💬 Discord</a>&nbsp; • &nbsp;
   <a href="https://ii2abc2jejf.typeform.com/to/tK3AXl8T">✉️ Contact</a>&nbsp;
 </p>
-  
+
+<p align="center">
+  <a href="https://github.com/VectifyAI/PageIndex/stargazers">
+    <img src="https://img.shields.io/github/stars/VectifyAI/PageIndex?style=for-the-badge&logo=github&label=⭐%20Star%20Us" alt="Star us on GitHub" />
+  </a>
+  <a href="https://twitter.com/VectifyAI">
+    <img src="https://img.shields.io/badge/Follow%20Us-000000?style=for-the-badge&logo=x&logoColor=white" alt="Follow us on X" />
+  </a>
+</p>
+
 </div>
 
 ---
