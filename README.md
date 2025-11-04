@@ -28,8 +28,8 @@
 ---
 
 ### 🚨 **New Releases:** 
-- 📖 [PageIndex Chat](https://chat.pageindex.ai): The world's first human-like document analyst agent, designed for professional long documents.
-- 🔌 [PageIndex MCP](https://github.com/VectifyAI/pageindex-mcp): Bring PageIndex into Claude, Cursor, or any MCP-enabled agent. Chat to long PDFs the human-like, reasoning-based way.
+- 📖 [PageIndex Chat](https://chat.pageindex.ai): World's first human-like document analyst agent, designed for professional long documents.
+- 🔌 [PageIndex MCP](https://github.com/VectifyAI/pageindex-mcp): Bring PageIndex into Claude, Cursor, or any MCP-enabled agent. Chat with long PDFs the reasoning-based, human-like way.
 
 # 📑 Introduction to PageIndex
 
@@ -46,22 +46,22 @@ Inspired by AlphaGo, we propose **[PageIndex](https://vectify.ai/pageindex)**, a
 
 ### 🧩 Features 
 
-Compared to traditional vector-based RAG, **PageIndex** features:
+Compared to traditional *vector-based RAG*, **PageIndex** features:
 - **No Vectors Needed**: Uses document structure and LLM reasoning for retrieval.
 - **No Chunking Needed**: Documents are organized into natural sections, not artificial chunks.
 - **Human-like Retrieval**: Simulates how human experts navigate and extract knowledge from complex documents.
-- **Transparent Retrieval Process**: Retrieval based on reasoning — say goodbye to approximate vector search ("vibe retrieval").
+- **Transparent Retrieval Process**: Retrieval based on reasoning — traceable and interpretable. Say goodbye to approximate vector search ("vibe retrieval").
 
 PageIndex powers a reasoning-based RAG system that achieved [98.7% accuracy](https://github.com/VectifyAI/Mafin2.5-FinanceBench) on FinanceBench, showing state-of-the-art performance in professional document analysis (see our [blog post](https://vectify.ai/blog/Mafin2.5) for details).
 
 ### ⚙️ Deployment Options
-- 🛠️ Self-host — run locally with this open-source repo
-- ☁️ **Cloud Service** — try instantly with our 🚀 [Agent](https://chat.pageindex.ai/), 🖥️ [Dashboard](https://dash.pageindex.ai/) or 🔌 [API](https://docs.pageindex.ai/quickstart), no setup required
+- 🛠️ Self-host — run locally with this open-source repo.
+- ☁️ **Cloud Service** — try instantly with our 🚀 [Agent](https://chat.pageindex.ai/), 🖥️ [Dashboard](https://dash.pageindex.ai/) or 🔌 [API](https://docs.pageindex.ai/quickstart).
 
 ### 🧪 Quick Hands-on
 
-- Check out this simple [_**Vectorless RAG Notebook**_](https://github.com/VectifyAI/PageIndex/blob/main/cookbook/pageindex_RAG_simple.ipynb) — a minimal, hands-on, reasoning-based RAG pipeline using **PageIndex**.
-- Also experience the [*Vision-based Vectorless RAG*](https://github.com/VectifyAI/PageIndex/blob/main/cookbook/vision_RAG_pageindex.ipynb) — no OCR; a reasoning-native RAG pipeline that works directly over page images.
+- Check out this simple [_**Vectorless RAG Notebook**_](https://github.com/VectifyAI/PageIndex/blob/main/cookbook/pageindex_RAG_simple.ipynb) — a *minimal*, hands-on, reasoning-based RAG pipeline using **PageIndex**.
+- Also experience the [*Vision-based Vectorless RAG*](https://github.com/VectifyAI/PageIndex/blob/main/cookbook/vision_RAG_pageindex.ipynb) — no OCR; minimal, reasoning-native RAG pipeline that works directly over page images.
 <p align="center">
   
 <a href="https://colab.research.google.com/github/VectifyAI/PageIndex/blob/main/cookbook/pageindex_RAG_simple.ipynb">
