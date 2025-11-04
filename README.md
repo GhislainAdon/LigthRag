@@ -58,9 +58,12 @@ PageIndex powers a reasoning-based RAG system that achieved [98.7% accuracy](htt
 - 🛠️ Self-host — run locally with this open-source repo
 - ☁️ **[Cloud Service](https://dash.pageindex.ai/)** — try instantly with our 🚀 [Agent](https://chat.pageindex.ai/), 🖥️ [Dashboard](https://dash.pageindex.ai/) or 🔌 [API](https://docs.pageindex.ai/quickstart), no setup required
 
-### ⚡ Quick Hands-on
+### 🧪 Quick Hands-on
 
 Check out this simple [*Vectorless RAG Notebook*](https://github.com/VectifyAI/PageIndex/blob/main/cookbook/pageindex_RAG_simple.ipynb) — a minimal, hands-on, reasoning-based RAG pipeline using **PageIndex**.
+
+Also try the [*Vision-based Vectorless RAG*](https://github.com/VectifyAI/PageIndex/blob/main/cookbook/vision_RAG_pageindex.ipynb) — no OCR; a reasoning-native RAG pipeline that works directly over page images.
+
 <p align="center">
 <a href="https://colab.research.google.com/github/VectifyAI/PageIndex/blob/main/cookbook/pageindex_RAG_simple.ipynb">
     <img src="https://img.shields.io/badge/Open_In_Colab-Vectorless_RAG_With_PageIndex-orange?style=for-the-badge&logo=googlecolab" alt="Open in Colab"/>
