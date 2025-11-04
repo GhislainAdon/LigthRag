@@ -29,7 +29,7 @@
 
 ### 🚨 **New Releases:** 
 - 📖 [PageIndex Chat](https://chat.pageindex.ai): The world's first human-like document analyst agent, designed for professional long documents.
-- 🔌 [PageIndex MCP](https://github.com/VectifyAI/pageindex-mcp): Bring PageIndex into Claude, Cursor, or any MCP-enabled agents. Chat to long PDFs the human-like, reasoning-based way 📖
+- 🔌 [PageIndex MCP](https://github.com/VectifyAI/pageindex-mcp): Bring PageIndex into Claude, Cursor, or any MCP-enabled agent. Chat to long PDFs the human-like, reasoning-based way.
 
 # 📑 Introduction to PageIndex
 
@@ -46,7 +46,7 @@ Inspired by AlphaGo, we propose **[PageIndex](https://vectify.ai/pageindex)**, a
 
 ### 🧩 Features 
 
-Compared to traditional vector-based RAG, PageIndex features:
+Compared to traditional vector-based RAG, **PageIndex** features:
 - **No Vectors Needed**: Uses document structure and LLM reasoning for retrieval.
 - **No Chunking Needed**: Documents are organized into natural sections, not artificial chunks.
 - **Human-like Retrieval**: Simulates how human experts navigate and extract knowledge from complex documents.
@@ -187,7 +187,7 @@ PageIndex's hierarchical indexing enabled precise navigation and extraction of r
 
 <div align="center">
   <a href="https://github.com/VectifyAI/Mafin2.5-FinanceBench">
-    <img src="https://github.com/user-attachments/assets/571aa074-d803-43c7-80c4-a04254b782a3" width="90%">
+    <img src="https://github.com/user-attachments/assets/571aa074-d803-43c7-80c4-a04254b782a3" width="70%">
   </a>
 </div>
 
@@ -198,15 +198,15 @@ PageIndex's hierarchical indexing enabled precise navigation and extraction of r
 ### Resources & Guides
 
 - 📖 Explore our [Tutorials](https://docs.pageindex.ai/doc-search) for practical guides and strategies, including *Document Search* and *Tree Search*.  
-- 🧪 Browse the [Cookbook](https://docs.pageindex.ai/cookbook/vectorless-rag-pageindex) for practical recipes and advanced use cases.  
-- ⚙️ Refer to the [API Documentation](https://docs.pageindex.ai/quickstart) for integration details and configuration options.
+- 🧪 Browse the [Cookbooks](https://docs.pageindex.ai/cookbook/vectorless-rag-pageindex) for practical recipes and advanced use cases.  
+- ⚙️ Refer to the [MCP setup](https://pageindex.ai/mcp#quick-setup) or [API docs](https://docs.pageindex.ai/quickstart) for integration details and configuration options.
 
 ### ⭐ Support Us
 
 Leave a star if you like our project. Thank you!  
 
 <p>
-  <img src="https://github.com/user-attachments/assets/eae4ff38-48ae-4a7c-b19f-eab81201d794" width="60%">
+  <img src="https://github.com/user-attachments/assets/eae4ff38-48ae-4a7c-b19f-eab81201d794" width="70%">
 </p>
 
 ### Connect with Us
