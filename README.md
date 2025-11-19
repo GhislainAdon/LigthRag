@@ -31,7 +31,8 @@
 <summary><h2>📢 Recent Updates</h2></summary>
 
  **🚀 New Releases:**
-- 🔥 [**PageIndex Chat**](https://chat.pageindex.ai): The first human-like document analyst agent, designed for professional long documents.
+- [🔥 **PageIndex Chat Platform**](https://chat.pageindex.ai): The first human-like document analyst agent platform, designed for professional long documents.
+- [**PageIndex Chat API**](https://chat.pageindex.ai): An API that brings PageIndex’s advanced long-document intelligence directly into your applications and workflows.
 - [**PageIndex MCP**](https://pageindex.ai/mcp): Bring PageIndex into Claude, Cursor, or any MCP-enabled agent. Chat with long PDFs in a reasoning-based, human-like way.
 
  **🧪 Cookbooks:**
