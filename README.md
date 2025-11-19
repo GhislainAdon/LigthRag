@@ -69,7 +69,7 @@ PageIndex powers a reasoning-based RAG system that achieved [98.7% accuracy](htt
 
 ### ⚙️ Deployment Options
 - 🛠️ Self-host — run locally with this open-source repo.
-- ☁️ **Cloud Service** — try instantly with our 🚀 [Agent](https://chat.pageindex.ai/), 🖥️ [Dashboard](https://dash.pageindex.ai/) or 🔌 [API](https://docs.pageindex.ai/quickstart).
+- ☁️ **Cloud Service** — try instantly with our  🖥️ [Platform](https://chat.pageindex.ai/), 🔌 [MCP](https://pageindex.ai/mcp) or 📚 [API](https://docs.pageindex.ai/quickstart).
 
 ### 🧪 Quick Hands-on
 
@@ -121,7 +121,7 @@ Here is an example output. See more [example documents](https://github.com/Vecti
 ...
 ```
 
- You can either generate the PageIndex tree structure with this open-source repo, or try our ☁️ **Cloud Service** — instantly accessible via our 🚀 [Agent](https://chat.pageindex.ai/), 🖥️ [Dashboard](https://dash.pageindex.ai/) or 🔌 [API](https://docs.pageindex.ai/quickstart).
+ You can either generate the PageIndex tree structure with this open-source repo, or try our [API](https://docs.pageindex.ai/quickstart) service.
 
 ---
 
@@ -209,14 +209,6 @@ PageIndex's hierarchical indexing enabled precise navigation and extraction of r
 </div>
 
 ---
-
-# 🔎 Learn More about PageIndex
-
-### Resources & Guides
-
-- 📖 Explore our [Tutorials](https://docs.pageindex.ai/doc-search) for practical guides and strategies, including *Document Search* and *Tree Search*.  
-- 🧪 Browse the [Cookbooks](https://docs.pageindex.ai/cookbook/vectorless-rag-pageindex) for practical recipes and advanced use cases.  
-- ⚙️ Refer to the [MCP setup](https://pageindex.ai/mcp#quick-setup) or [API docs](https://docs.pageindex.ai/quickstart) for integration details and configuration options.
 
 ### ⭐ Support Us
 
