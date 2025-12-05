@@ -30,7 +30,8 @@
 <summary><h2>📢 Recent Updates</h2></summary>
 
  **🚀 New Releases:**
-- [🔥 **PageIndex Chat**](https://chat.pageindex.ai): The first human-like document analyst agent platform, designed for professional long documents (also available via the [API](https://docs.pageindex.ai/quickstart)).
+- [🔥 **PageIndex Chat**](https://chat.pageindex.ai): 
+The first human-like document-analysis agent platform built for professional long documents — also available via the [API](https://docs.pageindex.ai/quickstart) (beta).
 <!-- - [**PageIndex Chat API**](https://docs.pageindex.ai/quickstart): An API that brings PageIndex’s advanced long-document intelligence directly into your applications and workflows. -->
 - [**PageIndex MCP**](https://pageindex.ai/mcp): Bring PageIndex into Claude, Cursor, or any MCP-enabled agent. Chat with long PDFs in a reasoning-based, human-like way.
 
@@ -194,7 +195,7 @@ To address this, we introduced PageIndex OCR — the first long-context OCR mode
 
 --- -->
 
-# 📈 Case Study: SOTA on Finance QA Benchmark
+# 📈 Case Study: Leading Finance QA Benchmark
 
 [Mafin 2.5](https://vectify.ai/mafin) is a reasoning-based RAG system for financial document analysis, powered by **PageIndex**. It achieved a state-of-the-art [**98.7% accuracy**](https://vectify.ai/blog/Mafin2.5) on the [FinanceBench](https://arxiv.org/abs/2311.11944) benchmark — significantly outperforming traditional vector-based RAG systems.
 
