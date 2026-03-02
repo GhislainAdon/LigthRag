@@ -41,7 +41,7 @@ Launch 5 parallel searches using different keyword strategies to maximize covera
 
 For each search, use:
 ```
-gh search issues "<keywords>" --repo $REPOSITORY --limit 20
+gh search issues "<keywords> state:open" --repo $REPOSITORY --limit 20
 ```
 
 ### 4. Analyze candidates

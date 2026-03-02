@@ -92,13 +92,16 @@ async function fetchDuplicateIssues() {
   return issues.filter(i => new Date(i.created_at) < cutoff);
 }
 
+function isBot(user) {
+  return user.type === 'Bot' || user.login.endsWith('[bot]') || user.login === 'github-actions';
+}
+
 /**
  * Finds the bot's duplicate comment on an issue (contains "possible duplicate").
  */
 function findDuplicateComment(comments) {
   return comments.find(c =>
-    (c.user.type === 'Bot' || c.user.login === 'github-actions[bot]') &&
-    c.body.includes('possible duplicate')
+    isBot(c.user) && c.body.includes('possible duplicate')
   );
 }
 
@@ -107,9 +110,7 @@ function findDuplicateComment(comments) {
  */
 function hasHumanCommentAfter(comments, afterDate) {
   return comments.some(c => {
-    if (c.user.type === 'Bot' || c.user.login.endsWith('[bot]') || c.user.login === 'github-actions') {
-      return false;
-    }
+    if (isBot(c.user)) return false;
     return new Date(c.created_at) > afterDate;
   });
 }
@@ -144,12 +145,6 @@ async function closeAsDuplicate(issueNumber) {
     'PATCH',
     `/repos/${REPO_OWNER}/${REPO_NAME}/issues/${issueNumber}`,
     { state: 'closed', state_reason: 'completed' }
-  );
-
-  await githubRequest(
-    'POST',
-    `/repos/${REPO_OWNER}/${REPO_NAME}/issues/${issueNumber}/labels`,
-    { labels: ['duplicate'] }
   );
 }
 

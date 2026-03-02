@@ -66,32 +66,16 @@ if [ ${#DUPLICATES[@]} -gt 3 ]; then
   DUPLICATES=("${DUPLICATES[@]:0:3}")
 fi
 
-# Validate that the base issue exists and is open
-if ! gh issue view "$BASE_ISSUE" --repo "$REPO" --json state -q '.state' | grep -qi 'open'; then
-  echo "Error: Issue #$BASE_ISSUE is not open or does not exist" >&2
-  exit 1
-fi
-
 # Build the duplicate links list
-LINKS=""
 COUNT=0
+LINKS=""
 for dup in "${DUPLICATES[@]}"; do
-  # Validate duplicate issue exists
-  if gh issue view "$dup" --repo "$REPO" --json number -q '.number' > /dev/null 2>&1; then
-    COUNT=$((COUNT + 1))
-    LINKS="${LINKS}${COUNT}. https://github.com/${REPO}/issues/${dup}
+  COUNT=$((COUNT + 1))
+  LINKS="${LINKS}${COUNT}. https://github.com/${REPO}/issues/${dup}
 "
-  else
-    echo "Warning: Issue #$dup does not exist, skipping" >&2
-  fi
 done
 
-if [ "$COUNT" -eq 0 ]; then
-  echo "Error: None of the specified duplicate issues exist" >&2
-  exit 1
-fi
-
-# Build and post the comment
+# Build and post the comment — if the issue is closed or doesn't exist, gh will error out
 COMMENT="Found ${COUNT} possible duplicate issue(s):
 
 ${LINKS}
@@ -99,8 +83,6 @@ This issue will be automatically closed as a duplicate in 3 days.
 - To prevent auto-closure, add a comment or react with :thumbsdown: on this comment."
 
 gh issue comment "$BASE_ISSUE" --repo "$REPO" --body "$COMMENT"
-
-# Add the duplicate label
 gh issue edit "$BASE_ISSUE" --repo "$REPO" --add-label "duplicate"
 
 echo "Posted duplicate comment on issue #$BASE_ISSUE with $COUNT potential duplicate(s)"
