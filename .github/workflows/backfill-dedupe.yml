@@ -37,19 +37,9 @@ jobs:
           SINCE=$(date -u -d "$DAYS_BACK days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-${DAYS_BACK}d +%Y-%m-%dT%H:%M:%SZ)
           echo "Fetching open issues since $SINCE"
 
-          # Get open issues with pagination, filter out PRs and already-labeled ones
-          ISSUES=""
-          PAGE=1
-          while true; do
-            RAW_COUNT=$(gh issue list --repo "$REPO" --state open --limit 100 --page "$PAGE" --json number | jq 'length')
-            BATCH=$(gh issue list --repo "$REPO" --state open --limit 100 --page "$PAGE" --json number,labels,createdAt \
-              --jq "[.[] | select(.createdAt >= \"$SINCE\") | select([.labels[].name] | index(\"duplicate\") | not)] | .[].number")
-
-            [ -n "$BATCH" ] && ISSUES="$ISSUES $BATCH"
-            [ "$RAW_COUNT" -lt 100 ] && break
-            PAGE=$((PAGE + 1))
-          done
-          ISSUES=$(echo "$ISSUES" | xargs)
+          # Get open issues via gh api --paginate, filter out PRs and already-labeled ones
+          ISSUES=$(gh api --paginate "repos/$REPO/issues?state=open&per_page=100" \
+            --jq "[.[] | select(.pull_request == null) | select(.created_at >= \"$SINCE\") | select([.labels[].name] | index(\"duplicate\") | not)] | .[].number" | xargs)
 
           if [ -z "$ISSUES" ]; then
             echo "No issues to process"
