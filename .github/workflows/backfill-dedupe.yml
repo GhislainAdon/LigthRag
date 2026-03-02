@@ -37,9 +37,19 @@ jobs:
           SINCE=$(date -u -d "$DAYS_BACK days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-${DAYS_BACK}d +%Y-%m-%dT%H:%M:%SZ)
           echo "Fetching open issues since $SINCE"
 
-          # Get open issues, filter out PRs and already-labeled ones
-          ISSUES=$(gh issue list --repo "$REPO" --state open --limit 200 --json number,title,labels,createdAt \
-            --jq "[.[] | select(.createdAt >= \"$SINCE\") | select([.labels[].name] | index(\"duplicate\") | not)] | .[].number")
+          # Get open issues with pagination, filter out PRs and already-labeled ones
+          ISSUES=""
+          PAGE=1
+          while true; do
+            BATCH=$(gh issue list --repo "$REPO" --state open --limit 100 --page "$PAGE" --json number,labels,createdAt \
+              --jq "[.[] | select(.createdAt >= \"$SINCE\") | select([.labels[].name] | index(\"duplicate\") | not)] | .[].number")
+
+            [ -z "$BATCH" ] && break
+            ISSUES="$ISSUES $BATCH"
+            [ $(echo "$BATCH" | wc -w) -lt 100 ] && break
+            PAGE=$((PAGE + 1))
+          done
+          ISSUES=$(echo "$ISSUES" | xargs)
 
           if [ -z "$ISSUES" ]; then
             echo "No issues to process"

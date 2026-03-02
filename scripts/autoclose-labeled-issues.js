@@ -46,13 +46,27 @@ function githubRequest(method, path, body = null, retried = false) {
       let data = '';
       res.on('data', chunk => (data += chunk));
       res.on('end', async () => {
-        if ((res.statusCode === 403 || res.statusCode === 429) && !retried) {
+        // 429: 始终重试（rate limit）
+        if (res.statusCode === 429 && !retried) {
           const retryAfter = parseInt(res.headers['retry-after'] || '60', 10);
           console.log(`  Rate limited on ${method} ${path}, retrying after ${retryAfter}s...`);
           await sleep(retryAfter * 1000);
           try { resolve(await githubRequest(method, path, body, true)); }
           catch (err) { reject(err); }
           return;
+        }
+        // 403: 只在 rate limit 相关时重试
+        if (res.statusCode === 403 && !retried) {
+          const rateLimitRemaining = res.headers['x-ratelimit-remaining'];
+          const hasRetryAfter = res.headers['retry-after'];
+          if (rateLimitRemaining === '0' || hasRetryAfter) {
+            const retryAfter = parseInt(hasRetryAfter || '60', 10);
+            console.log(`  Rate limited (403) on ${method} ${path}, retrying after ${retryAfter}s...`);
+            await sleep(retryAfter * 1000);
+            try { resolve(await githubRequest(method, path, body, true)); }
+            catch (err) { reject(err); }
+            return;
+          }
         }
         if (res.statusCode >= 400) {
           reject(new Error(`GitHub API ${method} ${path} -> ${res.statusCode}: ${data}`));
@@ -116,6 +130,26 @@ function hasHumanCommentAfter(comments, afterDate) {
 }
 
 /**
+ * Fetches all comments for an issue, handling pagination.
+ * Requests per_page=100 and loops until we get fewer than 100 or an empty array.
+ */
+async function fetchAllComments(issueNumber) {
+  const allComments = [];
+  let page = 1;
+  while (true) {
+    const comments = await githubRequest(
+      'GET',
+      `/repos/${REPO_OWNER}/${REPO_NAME}/issues/${issueNumber}/comments?per_page=100&page=${page}`
+    );
+    if (!Array.isArray(comments) || comments.length === 0) break;
+    allComments.push(...comments);
+    if (comments.length < 100) break;
+    page++;
+  }
+  return allComments;
+}
+
+/**
  * Checks if the duplicate comment has a thumbs-down reaction.
  */
 async function hasThumbsDownReaction(commentId) {
@@ -152,12 +186,9 @@ async function processIssue(issue) {
   const num = issue.number;
   console.log(`\nChecking issue #${num}: ${issue.title}`);
 
-  const comments = await githubRequest(
-    'GET',
-    `/repos/${REPO_OWNER}/${REPO_NAME}/issues/${num}/comments?per_page=100`
-  );
+  const comments = await fetchAllComments(num);
 
-  if (!Array.isArray(comments)) {
+  if (!Array.isArray(comments) || comments.length === 0) {
     console.log(`  -> Could not fetch comments, skipping.`);
     return false;
   }
