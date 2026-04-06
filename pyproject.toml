@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pageindex"
+version = "0.3.0"
+description = "Python SDK for PageIndex"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Ray", email = "ray@vectify.ai"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+keywords = ["rag", "document", "retrieval", "llm", "pageindex"]
+dependencies = [
+    "litellm>=1.82.0",
+    "pymupdf>=1.26.0",
+    "PyPDF2>=3.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "openai-agents>=0.1.0",
+    "requests>=2.28.0",
+    "httpx[socks]>=0.28.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.urls]
+Homepage = "https://github.com/VectifyAI/PageIndex"
+Documentation = "https://docs.pageindex.ai"
+Repository = "https://github.com/VectifyAI/PageIndex"
+Issues = "https://github.com/VectifyAI/PageIndex/issues"
+
+[tool.setuptools.packages.find]
+include = ["pageindex*"]

@@ -1,0 +1,95 @@
+# tests/sdk/test_pipeline.py
+import asyncio
+from unittest.mock import patch, AsyncMock
+
+from pageindex.parser.protocol import ContentNode, ParsedDocument
+from pageindex.index.pipeline import (
+    detect_strategy, build_tree_from_levels, build_index,
+    _content_based_pipeline, _NullLogger,
+)
+
+
+def test_detect_strategy_with_level():
+    nodes = [
+        ContentNode(content="# Intro", tokens=10, title="Intro", index=1, level=1),
+        ContentNode(content="## Details", tokens=10, title="Details", index=5, level=2),
+    ]
+    assert detect_strategy(nodes) == "level_based"
+
+
+def test_detect_strategy_without_level():
+    nodes = [
+        ContentNode(content="Page 1 text", tokens=100, index=1),
+        ContentNode(content="Page 2 text", tokens=100, index=2),
+    ]
+    assert detect_strategy(nodes) == "content_based"
+
+
+def test_build_tree_from_levels():
+    nodes = [
+        ContentNode(content="ch1 text", tokens=10, title="Chapter 1", index=1, level=1),
+        ContentNode(content="s1.1 text", tokens=10, title="Section 1.1", index=5, level=2),
+        ContentNode(content="s1.2 text", tokens=10, title="Section 1.2", index=10, level=2),
+        ContentNode(content="ch2 text", tokens=10, title="Chapter 2", index=20, level=1),
+    ]
+    tree = build_tree_from_levels(nodes)
+    assert len(tree) == 2  # 2 root nodes (chapters)
+    assert tree[0]["title"] == "Chapter 1"
+    assert len(tree[0]["nodes"]) == 2  # 2 sections under chapter 1
+    assert tree[0]["nodes"][0]["title"] == "Section 1.1"
+    assert tree[0]["nodes"][1]["title"] == "Section 1.2"
+    assert tree[1]["title"] == "Chapter 2"
+    assert len(tree[1]["nodes"]) == 0
+
+
+def test_build_tree_from_levels_single_level():
+    nodes = [
+        ContentNode(content="a", tokens=5, title="A", index=1, level=1),
+        ContentNode(content="b", tokens=5, title="B", index=2, level=1),
+    ]
+    tree = build_tree_from_levels(nodes)
+    assert len(tree) == 2
+    assert tree[0]["title"] == "A"
+    assert tree[1]["title"] == "B"
+
+
+def test_build_tree_from_levels_deep_nesting():
+    nodes = [
+        ContentNode(content="h1", tokens=5, title="H1", index=1, level=1),
+        ContentNode(content="h2", tokens=5, title="H2", index=2, level=2),
+        ContentNode(content="h3", tokens=5, title="H3", index=3, level=3),
+    ]
+    tree = build_tree_from_levels(nodes)
+    assert len(tree) == 1
+    assert tree[0]["title"] == "H1"
+    assert len(tree[0]["nodes"]) == 1
+    assert tree[0]["nodes"][0]["title"] == "H2"
+    assert len(tree[0]["nodes"][0]["nodes"]) == 1
+    assert tree[0]["nodes"][0]["nodes"][0]["title"] == "H3"
+
+
+def test_content_based_pipeline_does_not_raise():
+    """_content_based_pipeline should delegate to tree_parser, not raise NotImplementedError."""
+    fake_tree = [{"title": "Intro", "start_index": 1, "end_index": 2, "nodes": []}]
+
+    async def fake_tree_parser(page_list, opt, doc=None, logger=None):
+        return fake_tree
+
+    page_list = [("Page 1 text", 50), ("Page 2 text", 60)]
+
+    from types import SimpleNamespace
+    opt = SimpleNamespace(model="test-model")
+
+    with patch("pageindex.index.page_index.tree_parser", new=fake_tree_parser):
+        result = asyncio.run(_content_based_pipeline(page_list, opt))
+
+    assert result == fake_tree
+
+
+def test_null_logger_methods():
+    """NullLogger should have info/error/debug and not raise."""
+    logger = _NullLogger()
+    logger.info("test message")
+    logger.error("test error")
+    logger.debug("test debug")
+    logger.info({"key": "value"})

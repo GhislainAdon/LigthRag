@@ -4,3 +4,7 @@ __pycache__
 .env*
 .venv/
 logs/
+pageindex.egg-info/
+*.db
+venv/
+uv.lock

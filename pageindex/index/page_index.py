@@ -4,7 +4,7 @@ import copy
 import math
 import random
 import re
-from .utils import *
+from .legacy_utils import *
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1081,17 +1081,17 @@ def page_index_main(doc, opt=None):
 
     async def page_index_builder():
         structure = await tree_parser(page_list, opt, doc=doc, logger=logger)
-        if opt.if_add_node_id == 'yes':
-            write_node_id(structure)    
-        if opt.if_add_node_text == 'yes':
+        if opt.if_add_node_id:
+            write_node_id(structure)
+        if opt.if_add_node_text:
             add_node_text(structure, page_list)
-        if opt.if_add_node_summary == 'yes':
-            if opt.if_add_node_text == 'no':
+        if opt.if_add_node_summary:
+            if not opt.if_add_node_text:
                 add_node_text(structure, page_list)
             await generate_summaries_for_structure(structure, model=opt.model)
-            if opt.if_add_node_text == 'no':
+            if not opt.if_add_node_text:
                 remove_structure_text(structure)
-            if opt.if_add_doc_description == 'yes':
+            if opt.if_add_doc_description:
                 # Create a clean structure without unnecessary fields for description generation
                 clean_structure = create_clean_structure_for_description(structure)
                 doc_description = generate_doc_description(clean_structure, model=opt.model)
@@ -1113,7 +1113,7 @@ def page_index_main(doc, opt=None):
 def page_index(doc, model=None, toc_check_page_num=None, max_page_num_each_node=None, max_token_num_each_node=None,
                if_add_node_id=None, if_add_node_summary=None, if_add_doc_description=None, if_add_node_text=None):
     
-    from .config import IndexConfig
+    from ..config import IndexConfig
     user_opt = {
         arg: value for arg, value in locals().items()
         if arg != "doc" and value is not None
