@@ -63,12 +63,11 @@ if __name__ == "__main__":
             'if_add_node_summary': args.if_add_node_summary,
             'if_add_doc_description': args.if_add_doc_description,
             'if_add_node_text': args.if_add_node_text,
-            'pdf_parser': args.pdf_parser,
         }
         opt = ConfigLoader().load({k: v for k, v in user_opt.items() if v is not None})
 
         # Process the PDF
-        toc_with_page_number = page_index_main(args.pdf_path, opt)
+        toc_with_page_number = page_index_main(args.pdf_path, opt, pdf_parser=args.pdf_parser or "PyPDF2")
         print('Parsing done, saving to file...')
         
         # Save results
