@@ -384,30 +384,63 @@ def add_preface_if_needed(data):
 
 
 
-def get_page_tokens(pdf_path, model=None, pdf_parser="PyPDF2"):
+SUPPORTED_PDF_PARSERS = ("PyPDF2", "pypdfium2", "PyMuPDF")
+
+
+def read_pdf_pages(doc, pdf_parser="PyPDF2"):
+    """Return a list of per-page text strings using the selected parser.
+
+    `doc` may be a file path (str/Path) or a BytesIO. `pdf_parser` is one of
+    SUPPORTED_PDF_PARSERS. PyPDF2 is the default and only required dependency;
+    pypdfium2 is lazy-imported so users opt in by installing it separately.
+    """
     if pdf_parser == "PyPDF2":
-        pdf_reader = PyPDF2.PdfReader(pdf_path)
-        page_list = []
-        for page_num in range(len(pdf_reader.pages)):
-            page = pdf_reader.pages[page_num]
-            page_text = page.extract_text()
-            token_length = litellm.token_counter(model=model, text=page_text)
-            page_list.append((page_text, token_length))
-        return page_list
-    elif pdf_parser == "PyMuPDF":
-        if isinstance(pdf_path, BytesIO):
-            pdf_stream = pdf_path
-            doc = pymupdf.open(stream=pdf_stream, filetype="pdf")
-        elif isinstance(pdf_path, str) and os.path.isfile(pdf_path) and pdf_path.lower().endswith(".pdf"):
-            doc = pymupdf.open(pdf_path)
-        page_list = []
-        for page in doc:
-            page_text = page.get_text()
-            token_length = litellm.token_counter(model=model, text=page_text)
-            page_list.append((page_text, token_length))
-        return page_list
-    else:
-        raise ValueError(f"Unsupported PDF parser: {pdf_parser}")
+        reader = PyPDF2.PdfReader(doc)
+        return [(p.extract_text() or "") for p in reader.pages]
+
+    if pdf_parser == "pypdfium2":
+        try:
+            import pypdfium2 as pdfium
+        except ImportError as e:
+            raise ImportError(
+                "pdf_parser='pypdfium2' requires the optional dependency. "
+                "Install it with: pip install pypdfium2"
+            ) from e
+        source = doc.getvalue() if isinstance(doc, BytesIO) else str(doc)
+        pdf = pdfium.PdfDocument(source)
+        try:
+            pages = []
+            for i in range(len(pdf)):
+                page = pdf[i]
+                tp = page.get_textpage()
+                try:
+                    text = (tp.get_text_bounded() or "").replace("\r\n", "\n")
+                finally:
+                    tp.close()
+                    page.close()
+                pages.append(text)
+            return pages
+        finally:
+            pdf.close()
+
+    if pdf_parser == "PyMuPDF":
+        if isinstance(doc, BytesIO):
+            d = pymupdf.open(stream=doc, filetype="pdf")
+        else:
+            d = pymupdf.open(str(doc))
+        try:
+            return [p.get_text() for p in d]
+        finally:
+            d.close()
+
+    raise ValueError(
+        f"Unsupported pdf_parser={pdf_parser!r}. Choose from {SUPPORTED_PDF_PARSERS}."
+    )
+
+
+def get_page_tokens(pdf_path, model=None, pdf_parser="PyPDF2"):
+    pages = read_pdf_pages(pdf_path, pdf_parser=pdf_parser)
+    return [(text, litellm.token_counter(model=model, text=text)) for text in pages]
 
         
 

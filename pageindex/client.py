@@ -5,12 +5,10 @@ import asyncio
 import concurrent.futures
 from pathlib import Path
 
-import PyPDF2
-
 from .page_index import page_index
 from .page_index_md import md_to_tree
 from .retrieve import get_document, get_document_structure, get_page_content
-from .utils import ConfigLoader, remove_fields
+from .utils import ConfigLoader, read_pdf_pages, remove_fields
 
 META_INDEX = "_meta.json"
 
@@ -32,7 +30,8 @@ class PageIndexClient:
 
     For agent-based QA, see examples/agentic_vectorless_rag_demo.py.
     """
-    def __init__(self, api_key: str = None, model: str = None, retrieve_model: str = None, workspace: str = None):
+    def __init__(self, api_key: str = None, model: str = None, retrieve_model: str = None,
+                 workspace: str = None, pdf_parser: str = None):
         if api_key:
             os.environ["OPENAI_API_KEY"] = api_key
         elif not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
@@ -43,9 +42,12 @@ class PageIndexClient:
             overrides["model"] = model
         if retrieve_model:
             overrides["retrieve_model"] = retrieve_model
+        if pdf_parser:
+            overrides["pdf_parser"] = pdf_parser
         opt = ConfigLoader().load(overrides or None)
         self.model = opt.model
         self.retrieve_model = _normalize_retrieve_model(opt.retrieve_model or self.model)
+        self.pdf_parser = opt.pdf_parser
         if self.workspace:
             self.workspace.mkdir(parents=True, exist_ok=True)
         self.documents = {}
@@ -74,14 +76,12 @@ class PageIndexClient:
                 if_add_node_summary='yes',
                 if_add_node_text='yes',
                 if_add_node_id='yes',
-                if_add_doc_description='yes'
+                if_add_doc_description='yes',
+                pdf_parser=self.pdf_parser,
             )
             # Extract per-page text so queries don't need the original PDF
-            pages = []
-            with open(file_path, 'rb') as f:
-                pdf_reader = PyPDF2.PdfReader(f)
-                for i, page in enumerate(pdf_reader.pages, 1):
-                    pages.append({'page': i, 'content': page.extract_text() or ''})
+            page_texts = read_pdf_pages(file_path, pdf_parser=self.pdf_parser)
+            pages = [{'page': i, 'content': text} for i, text in enumerate(page_texts, 1)]
 
             self.documents[doc_id] = {
                 'id': doc_id,
@@ -90,6 +90,7 @@ class PageIndexClient:
                 'doc_name': result.get('doc_name', ''),
                 'doc_description': result.get('doc_description', ''),
                 'page_count': len(pages),
+                'pdf_parser': self.pdf_parser,
                 'structure': result['structure'],
                 'pages': pages,
             }
@@ -140,6 +141,8 @@ class PageIndexClient:
         }
         if doc.get('type') == 'pdf':
             entry['page_count'] = doc.get('page_count')
+            if doc.get('pdf_parser'):
+                entry['pdf_parser'] = doc['pdf_parser']
         elif doc.get('type') == 'md':
             entry['line_count'] = doc.get('line_count')
         return entry
