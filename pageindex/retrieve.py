@@ -1,9 +1,9 @@
 import json
 
 try:
-    from .utils import DEFAULT_PDF_PARSER, get_number_of_pages, read_pdf_pages, remove_fields
+    from .utils import get_number_of_pages, read_pdf_pages, remove_fields
 except ImportError:
-    from utils import DEFAULT_PDF_PARSER, get_number_of_pages, read_pdf_pages, remove_fields
+    from utils import get_number_of_pages, read_pdf_pages, remove_fields
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ def _count_pages(doc_info: dict) -> int:
     return get_number_of_pages(doc_info['path'])
 
 
-def _get_pdf_page_content(doc_info: dict, page_nums: list[int], pdf_parser: str = DEFAULT_PDF_PARSER) -> list[dict]:
+def _get_pdf_page_content(doc_info: dict, page_nums: list[int]) -> list[dict]:
     """Extract text for specific PDF pages (1-indexed). Prefer cached pages, fallback to PDF."""
     cached_pages = doc_info.get('pages')
     if cached_pages:
@@ -41,7 +41,7 @@ def _get_pdf_page_content(doc_info: dict, page_nums: list[int], pdf_parser: str 
             {'page': p, 'content': page_map[p]}
             for p in page_nums if p in page_map
         ]
-    all_pages = read_pdf_pages(doc_info['path'], pdf_parser=pdf_parser)
+    all_pages = read_pdf_pages(doc_info['path'])
     total = len(all_pages)
     valid_pages = [p for p in page_nums if 1 <= p <= total]
     return [
@@ -104,7 +104,7 @@ def get_document_structure(documents: dict, doc_id: str) -> str:
     return json.dumps(structure_no_text, ensure_ascii=False)
 
 
-def get_page_content(documents: dict, doc_id: str, pages: str, pdf_parser: str = DEFAULT_PDF_PARSER) -> str:
+def get_page_content(documents: dict, doc_id: str, pages: str) -> str:
     """
     Retrieve page content for a document.
 
@@ -125,7 +125,7 @@ def get_page_content(documents: dict, doc_id: str, pages: str, pdf_parser: str =
 
     try:
         if doc_info.get('type') == 'pdf':
-            content = _get_pdf_page_content(doc_info, page_nums, pdf_parser=pdf_parser)
+            content = _get_pdf_page_content(doc_info, page_nums)
         else:
             content = _get_md_page_content(doc_info, page_nums)
     except Exception as e:

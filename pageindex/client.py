@@ -8,7 +8,7 @@ from pathlib import Path
 from .page_index import page_index
 from .page_index_md import md_to_tree
 from .retrieve import get_document, get_document_structure, get_page_content
-from .utils import ConfigLoader, DEFAULT_PDF_PARSER, read_pdf_pages, remove_fields
+from .utils import ConfigLoader, read_pdf_pages, remove_fields
 
 META_INDEX = "_meta.json"
 
@@ -51,8 +51,8 @@ class PageIndexClient:
         if self.workspace:
             self._load_workspace()
 
-    def index(self, file_path: str, mode: str = "auto", pdf_parser: str = DEFAULT_PDF_PARSER) -> str:
-        """Index a document. Returns a document_id. pdf_parser only affects PDF mode."""
+    def index(self, file_path: str, mode: str = "auto") -> str:
+        """Index a document. Returns a document_id."""
         # Persist a canonical absolute path so workspace reloads do not
         # reinterpret caller-relative paths against the workspace directory.
         file_path = os.path.abspath(os.path.expanduser(file_path))
@@ -74,10 +74,9 @@ class PageIndexClient:
                 if_add_node_text='yes',
                 if_add_node_id='yes',
                 if_add_doc_description='yes',
-                pdf_parser=pdf_parser,
             )
             # Extract per-page text so queries don't need the original PDF
-            page_texts = read_pdf_pages(file_path, pdf_parser=pdf_parser)
+            page_texts = read_pdf_pages(file_path)
             pages = [{'page': i, 'content': text} for i, text in enumerate(page_texts, 1)]
 
             self.documents[doc_id] = {
@@ -225,12 +224,7 @@ class PageIndexClient:
         return get_document_structure(self.documents, doc_id)
 
     def get_page_content(self, doc_id: str, pages: str) -> str:
-        """Return page content for the given pages string (e.g. '5-7', '3,8', '12').
-
-        Cache hit returns originally-indexed text. The rare cache-miss path
-        re-reads with the default parser; callers needing parser-consistent
-        fallback can use the low-level retrieve.get_page_content directly.
-        """
+        """Return page content for the given pages string (e.g. '5-7', '3,8', '12')."""
         if self.workspace:
             self._ensure_doc_loaded(doc_id)
         return get_page_content(self.documents, doc_id, pages)

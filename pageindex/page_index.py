@@ -1063,7 +1063,7 @@ async def tree_parser(page_list, opt, doc=None, logger=None):
     return toc_tree
 
 
-def page_index_main(doc, opt=None, pdf_parser=DEFAULT_PDF_PARSER):
+def page_index_main(doc, opt=None):
     logger = JsonLogger(doc)
 
     is_valid_pdf = (
@@ -1074,7 +1074,7 @@ def page_index_main(doc, opt=None, pdf_parser=DEFAULT_PDF_PARSER):
         raise ValueError("Unsupported input type. Expected a PDF file path or BytesIO object.")
 
     print('Parsing PDF...')
-    page_list = get_page_tokens(doc, model=opt.model, pdf_parser=pdf_parser)
+    page_list = get_page_tokens(doc, model=opt.model)
 
     logger.info({'total_page_number': len(page_list)})
     logger.info({'total_token': sum([page[1] for page in page_list])})
@@ -1111,15 +1111,14 @@ def page_index_main(doc, opt=None, pdf_parser=DEFAULT_PDF_PARSER):
 
 
 def page_index(doc, model=None, toc_check_page_num=None, max_page_num_each_node=None, max_token_num_each_node=None,
-               if_add_node_id=None, if_add_node_summary=None, if_add_doc_description=None, if_add_node_text=None,
-               pdf_parser=DEFAULT_PDF_PARSER):
+               if_add_node_id=None, if_add_node_summary=None, if_add_doc_description=None, if_add_node_text=None):
 
     user_opt = {
         arg: value for arg, value in locals().items()
-        if arg not in ("doc", "pdf_parser") and value is not None
+        if arg != "doc" and value is not None
     }
     opt = ConfigLoader().load(user_opt)
-    return page_index_main(doc, opt, pdf_parser=pdf_parser)
+    return page_index_main(doc, opt)
 
 
 def validate_and_truncate_physical_indices(toc_with_page_number, page_list_length, start_index=1, logger=None):

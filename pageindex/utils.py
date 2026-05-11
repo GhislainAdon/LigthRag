@@ -385,26 +385,26 @@ def add_preface_if_needed(data):
 
 
 SUPPORTED_PDF_PARSERS = ("PyPDF2", "pypdfium2", "PyMuPDF")
-DEFAULT_PDF_PARSER = SUPPORTED_PDF_PARSERS[0]
+
+# Module-level setting. Override by mutating this attribute or setting
+# PAGEINDEX_PDF_PARSER in the environment before import.
+DEFAULT_PDF_PARSER = os.getenv("PAGEINDEX_PDF_PARSER") or SUPPORTED_PDF_PARSERS[0]
 
 
-def read_pdf_pages(doc, pdf_parser=DEFAULT_PDF_PARSER):
-    """Return a list of per-page text strings using the selected parser.
+def read_pdf_pages(doc):
+    """Return a list of per-page text strings using the currently configured parser."""
+    parser = DEFAULT_PDF_PARSER
 
-    `doc` may be a file path (str/Path) or a BytesIO. `pdf_parser` is one of
-    SUPPORTED_PDF_PARSERS. PyPDF2 is the default and only required dependency;
-    pypdfium2 is lazy-imported so users opt in by installing it separately.
-    """
-    if pdf_parser == "PyPDF2":
+    if parser == "PyPDF2":
         reader = PyPDF2.PdfReader(doc)
         return [(p.extract_text() or "") for p in reader.pages]
 
-    if pdf_parser == "pypdfium2":
+    if parser == "pypdfium2":
         try:
             import pypdfium2 as pdfium
         except ImportError as e:
             raise ImportError(
-                "pdf_parser='pypdfium2' requires the optional dependency. "
+                "DEFAULT_PDF_PARSER='pypdfium2' requires the optional dependency. "
                 "Install it with: pip install pypdfium2"
             ) from e
         source = doc.getvalue() if isinstance(doc, BytesIO) else str(doc)
@@ -424,7 +424,7 @@ def read_pdf_pages(doc, pdf_parser=DEFAULT_PDF_PARSER):
         finally:
             pdf.close()
 
-    if pdf_parser == "PyMuPDF":
+    if parser == "PyMuPDF":
         if isinstance(doc, BytesIO):
             d = pymupdf.open(stream=doc, filetype="pdf")
         else:
@@ -435,12 +435,12 @@ def read_pdf_pages(doc, pdf_parser=DEFAULT_PDF_PARSER):
             d.close()
 
     raise ValueError(
-        f"Unsupported pdf_parser={pdf_parser!r}. Choose from {SUPPORTED_PDF_PARSERS}."
+        f"Unsupported DEFAULT_PDF_PARSER={parser!r}. Choose from {SUPPORTED_PDF_PARSERS}."
     )
 
 
-def get_page_tokens(pdf_path, model=None, pdf_parser=DEFAULT_PDF_PARSER):
-    pages = read_pdf_pages(pdf_path, pdf_parser=pdf_parser)
+def get_page_tokens(pdf_path, model=None):
+    pages = read_pdf_pages(pdf_path)
     return [(text, litellm.token_counter(model=model, text=text)) for text in pages]
 
         
