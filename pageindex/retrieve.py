@@ -33,11 +33,7 @@ def _count_pages(doc_info: dict) -> int:
 
 
 def _get_pdf_page_content(doc_info: dict, page_nums: list[int]) -> list[dict]:
-    """Extract text for specific PDF pages (1-indexed). Prefer cached pages, fallback to PDF.
-
-    Honors the parser recorded on the document so cache-miss reads stay consistent
-    with the originally-indexed text. Defaults to PyPDF2 for legacy documents.
-    """
+    """Extract text for specific PDF pages (1-indexed). Prefer cached pages, fallback to PDF."""
     cached_pages = doc_info.get('pages')
     if cached_pages:
         page_map = {p['page']: p['content'] for p in cached_pages}
