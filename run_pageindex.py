@@ -4,7 +4,6 @@ import json
 from pageindex import *
 import pageindex.utils as pageindex_utils
 from pageindex.page_index_md import md_to_tree
-from pageindex.utils import ConfigLoader
 
 if __name__ == "__main__":
     # Set up argument parser
@@ -65,7 +64,7 @@ if __name__ == "__main__":
             'if_add_doc_description': args.if_add_doc_description,
             'if_add_node_text': args.if_add_node_text,
         }
-        opt = ConfigLoader().load({k: v for k, v in user_opt.items() if v is not None})
+        opt = pageindex_utils.ConfigLoader().load({k: v for k, v in user_opt.items() if v is not None})
 
         # CLI flag overrides the module-level default (and env var PAGEINDEX_PDF_PARSER).
         if args.pdf_parser:
@@ -100,8 +99,7 @@ if __name__ == "__main__":
         import asyncio
         
         # Use ConfigLoader to get consistent defaults (matching PDF behavior)
-        from pageindex.utils import ConfigLoader
-        config_loader = ConfigLoader()
+        config_loader = pageindex_utils.ConfigLoader()
         
         # Create options dict with user args
         user_opt = {
