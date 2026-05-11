@@ -88,7 +88,6 @@ class PageIndexClient:
                 'doc_name': result.get('doc_name', ''),
                 'doc_description': result.get('doc_description', ''),
                 'page_count': len(pages),
-                'pdf_parser': self.pdf_parser,
                 'structure': result['structure'],
                 'pages': pages,
             }
@@ -139,8 +138,6 @@ class PageIndexClient:
         }
         if doc.get('type') == 'pdf':
             entry['page_count'] = doc.get('page_count')
-            if doc.get('pdf_parser'):
-                entry['pdf_parser'] = doc['pdf_parser']
         elif doc.get('type') == 'md':
             entry['line_count'] = doc.get('line_count')
         return entry
@@ -232,4 +229,4 @@ class PageIndexClient:
         """Return page content for the given pages string (e.g. '5-7', '3,8', '12')."""
         if self.workspace:
             self._ensure_doc_loaded(doc_id)
-        return get_page_content(self.documents, doc_id, pages)
+        return get_page_content(self.documents, doc_id, pages, pdf_parser=self.pdf_parser)
