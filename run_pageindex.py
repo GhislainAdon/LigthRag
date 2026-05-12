@@ -29,7 +29,8 @@ if __name__ == "__main__":
     parser.add_argument('--if-add-node-text', type=str, default=None,
                       help='Whether to add text to the node')
     parser.add_argument('--pdf-parser', type=str, default=None,
-                      help='PDF text extractor: PyPDF2 (default), pypdfium2 (requires `pip install pypdfium2`), or PyMuPDF')
+                      choices=pageindex_utils.SUPPORTED_PDF_PARSERS,
+                      help='PDF text extractor to use')
 
     # Markdown specific arguments
     parser.add_argument('--if-thinning', type=str, default='no',
