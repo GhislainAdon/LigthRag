@@ -391,9 +391,9 @@ SUPPORTED_PDF_PARSERS = ("PyPDF2", "pypdfium2", "PyMuPDF")
 DEFAULT_PDF_PARSER = os.getenv("PAGEINDEX_PDF_PARSER") or SUPPORTED_PDF_PARSERS[0]
 
 
-def read_pdf_pages(doc):
-    """Return a list of per-page text strings using the currently configured parser."""
-    parser = DEFAULT_PDF_PARSER
+def read_pdf_pages(doc, pdf_parser=None):
+    """Return a list of per-page text strings using the selected parser."""
+    parser = pdf_parser or DEFAULT_PDF_PARSER
 
     if parser == "PyPDF2":
         reader = PyPDF2.PdfReader(doc)
@@ -435,15 +435,14 @@ def read_pdf_pages(doc):
             d.close()
 
     raise ValueError(
-        f"Unsupported DEFAULT_PDF_PARSER={parser!r}. Choose from {SUPPORTED_PDF_PARSERS}."
+        f"Unsupported pdf_parser={parser!r}. Choose from {SUPPORTED_PDF_PARSERS}."
     )
 
 
-def get_page_tokens(pdf_path, model=None):
-    pages = read_pdf_pages(pdf_path)
+def get_page_tokens(pdf_path, model=None, pdf_parser=None):
+    pages = read_pdf_pages(pdf_path, pdf_parser=pdf_parser)
     return [(text, litellm.token_counter(model=model, text=text)) for text in pages]
 
-        
 
 def get_text_of_pdf_pages(pdf_pages, start_page, end_page):
     text = ""
