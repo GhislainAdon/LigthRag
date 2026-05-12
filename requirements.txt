@@ -1,7 +1,7 @@
 litellm==1.83.7
 # openai-agents  # optional: required for examples/agentic_vectorless_rag_demo.py
 pymupdf==1.26.4
-# pypdfium2     # optional: enables pdf_parser="pypdfium2" (cleaner text, faster, Apache 2.0)
+# pypdfium2     # optional: alternative PDF parser
 PyPDF2==3.0.1
 python-dotenv==1.2.2
 pyyaml==6.0.2
