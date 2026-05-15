@@ -196,22 +196,6 @@ col.query("Compare these two papers", doc_ids=[doc1, doc2])     # multi
 
 Omitting `doc_ids` queries the **entire collection** and lets the agent pick which docs to read. This is an **experimental** feature with a naive first implementation — we're actively working on better cross-document retrieval. A `UserWarning` is emitted; set `PAGEINDEX_EXPERIMENTAL_MULTIDOC=1` to silence it.
 
-### Environment variables
-
-| Variable | Effect |
-|---|---|
-| `OPENAI_API_KEY` (or any LiteLLM `<PROVIDER>_API_KEY`) | LLM provider key — local mode |
-| `PAGEINDEX_API_KEY` | PageIndex cloud key — cloud mode |
-| `PAGEINDEX_EXPERIMENTAL_MULTIDOC` | Set to `1` to silence the warning when calling `col.query(...)` without `doc_ids` |
-
-### Runnable examples
-
-- [`examples/local_demo.py`](examples/local_demo.py) — local mode end-to-end (index a PDF + streaming QA)
-- [`examples/cloud_demo.py`](examples/cloud_demo.py) — cloud mode end-to-end
-- [`examples/demo_query_modes.py`](examples/demo_query_modes.py) — exercises all `Collection.query` modes (single / multi / scoped / experimental warning)
-- [`examples/demo_legacy_sdk.py`](examples/demo_legacy_sdk.py) — smoke test for the legacy `pageindex_sdk` 0.2.x compatibility layer against the cloud API
-- [`examples/agentic_vectorless_rag_demo.py`](examples/agentic_vectorless_rag_demo.py) — lower-level integration with the OpenAI Agents SDK
-
 ---
 
 # ⚙️ Package Usage
