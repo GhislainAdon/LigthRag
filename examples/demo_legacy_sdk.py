@@ -1,6 +1,10 @@
 """End-to-end smoke test of the legacy SDK compatibility layer against the real cloud API.
 
-Run: PAGEINDEX_API_KEY=... uv run python scripts/e2e_legacy_sdk.py
+Exercises the legacy `pageindex_sdk` 0.2.x methods preserved on `PageIndexClient`:
+submit_document, is_retrieval_ready, get_tree, get_document, chat_completions
+(sync + stream), and delete_document.
+
+Run: PAGEINDEX_API_KEY=... python examples/demo_legacy_sdk.py
 """
 from __future__ import annotations
 import os

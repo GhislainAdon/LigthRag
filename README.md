@@ -208,6 +208,8 @@ Omitting `doc_ids` queries the **entire collection** and lets the agent pick whi
 
 - [`examples/local_demo.py`](examples/local_demo.py) — local mode end-to-end (index a PDF + streaming QA)
 - [`examples/cloud_demo.py`](examples/cloud_demo.py) — cloud mode end-to-end
+- [`examples/demo_query_modes.py`](examples/demo_query_modes.py) — exercises all `Collection.query` modes (single / multi / scoped / experimental warning)
+- [`examples/demo_legacy_sdk.py`](examples/demo_legacy_sdk.py) — smoke test for the legacy `pageindex_sdk` 0.2.x compatibility layer against the cloud API
 - [`examples/agentic_vectorless_rag_demo.py`](examples/agentic_vectorless_rag_demo.py) — lower-level integration with the OpenAI Agents SDK
 
 ---
