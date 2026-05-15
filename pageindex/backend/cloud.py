@@ -13,7 +13,6 @@ import urllib.parse
 import requests
 from typing import AsyncIterator
 
-from .protocol import AgentTools
 from ..errors import CloudAPIError, PageIndexError
 from ..events import QueryEvent
 
@@ -230,8 +229,15 @@ class CloudBackend:
 
     # ── Query (uses cloud chat/completions, no LLM key needed) ────────────
 
-    def query(self, collection: str, question: str, doc_ids: list[str] | None = None) -> str:
+    def query(self, collection: str, question: str,
+              doc_ids: str | list[str] | None = None) -> str:
         """Non-streaming query via cloud chat/completions."""
+        if isinstance(doc_ids, str):
+            doc_ids = [doc_ids]
+        elif doc_ids == []:
+            raise ValueError(
+                "doc_ids cannot be empty; pass None to query the whole collection"
+            )
         doc_id = doc_ids if doc_ids else self._get_all_doc_ids(collection)
         resp = self._request("POST", "/chat/completions/", json={
             "messages": [{"role": "user", "content": question}],
@@ -245,7 +251,7 @@ class CloudBackend:
         return resp.get("content", resp.get("answer", ""))
 
     async def query_stream(self, collection: str, question: str,
-                           doc_ids: list[str] | None = None) -> AsyncIterator[QueryEvent]:
+                           doc_ids: str | list[str] | None = None) -> AsyncIterator[QueryEvent]:
         """Streaming query via cloud chat/completions SSE.
 
         Events are yielded in real-time as they arrive from the server.
@@ -255,6 +261,12 @@ class CloudBackend:
         import asyncio
         import threading
 
+        if isinstance(doc_ids, str):
+            doc_ids = [doc_ids]
+        elif doc_ids == []:
+            raise ValueError(
+                "doc_ids cannot be empty; pass None to query the whole collection"
+            )
         doc_id = doc_ids if doc_ids else self._get_all_doc_ids(collection)
         headers = self._headers
         queue: asyncio.Queue[QueryEvent | None] = asyncio.Queue()
@@ -350,9 +362,3 @@ class CloudBackend:
         """Get all document IDs in a collection."""
         docs = self.list_documents(collection)
         return [d["doc_id"] for d in docs]
-
-    # ── Not used in cloud mode ────────────────────────────────────────────
-
-    def get_agent_tools(self, collection: str, doc_ids: list[str] | None = None) -> AgentTools:
-        """Not used in cloud mode — query goes through chat/completions."""
-        return AgentTools()

@@ -1,3 +1,5 @@
+import pytest
+
 from pageindex.backend.cloud import CloudBackend, API_BASE
 
 
@@ -11,6 +13,7 @@ def test_api_base_url():
     assert "pageindex.ai" in API_BASE
 
 
-def test_get_retrieve_model_is_none():
+def test_query_rejects_empty_doc_ids():
     backend = CloudBackend(api_key="pi-test")
-    assert backend.get_agent_tools("col").function_tools == []
+    with pytest.raises(ValueError, match="cannot be empty"):
+        backend.query("col", "q", doc_ids=[])

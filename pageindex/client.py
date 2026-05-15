@@ -55,7 +55,10 @@ class PageIndexClient:
     def __init__(self, api_key: str | None = None, model: str = None,
                  retrieve_model: str = None, storage_path: str = None,
                  storage=None, index_config: IndexConfig | dict = None):
-        if api_key == "":
+        # Track whether api_key was passed as empty string vs None — only
+        # affects the error message when legacy cloud methods are then called.
+        self._empty_api_key = api_key == ""
+        if self._empty_api_key:
             import logging
             logging.getLogger(__name__).warning(
                 "PageIndexClient received an empty api_key; falling back to local mode. "
@@ -150,6 +153,13 @@ class PageIndexClient:
     def _require_cloud_api(self):
         if self._legacy_cloud_api is None:
             from .errors import PageIndexAPIError
+            if getattr(self, "_empty_api_key", False):
+                raise PageIndexAPIError(
+                    "Cannot call legacy SDK methods: api_key was an empty string, "
+                    "so PageIndexClient fell back to local mode. Pass a real "
+                    "PageIndex cloud API key, or migrate to the Collection API "
+                    "(client.collection(...)) for local mode."
+                )
             raise PageIndexAPIError(
                 "This method is part of the pageindex 0.2.x cloud SDK API. "
                 "Initialize with api_key to use it."
@@ -239,7 +249,20 @@ class PageIndexClient:
         offset: int = 0,
         folder_id: str | None = None,
     ) -> dict[str, Any]:
-        """Legacy SDK compatibility — prefer ``collection.list_documents()``."""
+        """Legacy SDK compatibility — prefer ``collection.list_documents()``.
+
+        Note the return shape differs between the two APIs:
+
+        - This legacy method returns the raw API envelope
+          ``{"documents": [...], "total": int, "limit": int, "offset": int}``
+          where each document carries keys ``id`` / ``name`` / ``description``.
+        - ``collection.list_documents()`` returns a plain ``list[dict]`` where
+          each entry uses keys ``doc_id`` / ``doc_name`` / ``doc_description``
+          / ``doc_type`` and is not paginated.
+
+        Code that migrates by a simple name swap will silently break — update
+        callers to the new key names and dropped pagination envelope.
+        """
         return self._require_cloud_api().list_documents(
             limit=limit,
             offset=offset,
@@ -293,6 +316,7 @@ class LocalClient(PageIndexClient):
     def __init__(self, model: str = None, retrieve_model: str = None,
                  storage_path: str = None, storage=None,
                  index_config: IndexConfig | dict = None):
+        self._empty_api_key = False
         self._init_local(model, retrieve_model, storage_path, storage, index_config)
 
 
@@ -300,4 +324,5 @@ class CloudClient(PageIndexClient):
     """Cloud mode — fully managed by PageIndex cloud service. No LLM key needed."""
 
     def __init__(self, api_key: str):
+        self._empty_api_key = False
         self._init_cloud(api_key)

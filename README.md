@@ -160,7 +160,7 @@ client = PageIndexClient(model="gpt-4o-2024-11-20")
 col = client.collection()
 doc_id = col.add("path/to/your.pdf")
 
-print(col.query("What is the main contribution?", doc_ids=[doc_id]))
+print(col.query("What is the main contribution?", doc_ids=doc_id))
 
 # Cloud mode — fully managed, no LLM key needed:
 # client = PageIndexClient(api_key="your-pageindex-api-key")
@@ -174,7 +174,7 @@ print(col.query("What is the main contribution?", doc_ids=[doc_id]))
 import asyncio
 
 async def main():
-    async for ev in col.query("Explain multi-head attention", stream=True):
+    async for ev in col.query("Explain multi-head attention", doc_ids=doc_id, stream=True):
         if ev.type == "answer_delta":
             print(ev.data, end="", flush=True)
         elif ev.type == "tool_call":
@@ -187,10 +187,11 @@ asyncio.run(main())
 
 ### Multi-document collections (experimental)
 
-Passing `doc_ids` scopes the query to a specific subset of documents — this is the recommended path:
+Passing `doc_ids` scopes the query to a specific subset of documents — this is the recommended path. `doc_ids` accepts a single id (`str`) or a list:
 
 ```python
-col.query("Compare these two papers", doc_ids=[doc1, doc2])
+col.query("What does this paper say?", doc_ids=doc1)            # single
+col.query("Compare these two papers", doc_ids=[doc1, doc2])     # multi
 ```
 
 Omitting `doc_ids` queries the **entire collection** and lets the agent pick which docs to read. This is an **experimental** feature with a naive first implementation — we're actively working on better cross-document retrieval. A `UserWarning` is emitted; set `PAGEINDEX_EXPERIMENTAL_MULTIDOC=1` to silence it.

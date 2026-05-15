@@ -111,7 +111,8 @@ def test_wrap_with_doc_context_single(populated_backend):
     docs = populated_backend._scoped_docs("papers", ["d1"])
     wrapped = wrap_with_doc_context(docs, "what is this?")
     assert "d1: alpha.pdf — About alpha." in wrapped
-    assert "specified the following document:" in wrapped
+    assert "specified the following document" in wrapped
+    assert "<docs>" in wrapped and "</docs>" in wrapped
     assert "User question: what is this?" in wrapped
 
 
@@ -121,10 +122,22 @@ def test_wrap_with_doc_context_multi(populated_backend):
     wrapped = wrap_with_doc_context(docs, "compare them")
     assert "d1: alpha.pdf — About alpha." in wrapped
     assert "d2: beta.pdf — About beta." in wrapped
-    assert "specified the following documents:" in wrapped
+    assert "specified the following documents" in wrapped
+    assert "<docs>" in wrapped and "</docs>" in wrapped
     assert "User question: compare them" in wrapped
 
 
 def test_scoped_docs_raises_on_missing(populated_backend):
     with pytest.raises(DocumentNotFoundError, match="nonexistent"):
         populated_backend._scoped_docs("papers", ["d1", "nonexistent"])
+
+
+def test_normalize_doc_ids():
+    assert LocalBackend._normalize_doc_ids("d1") == ["d1"]
+    assert LocalBackend._normalize_doc_ids(["d1", "d2"]) == ["d1", "d2"]
+    assert LocalBackend._normalize_doc_ids(None) is None
+
+
+def test_normalize_doc_ids_rejects_empty_list():
+    with pytest.raises(ValueError, match="cannot be empty"):
+        LocalBackend._normalize_doc_ids([])

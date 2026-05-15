@@ -13,6 +13,32 @@ def test_cloud_client_is_pageindex_client():
     assert isinstance(client, PageIndexClient)
 
 
+def test_empty_api_key_legacy_method_error_is_specific(tmp_path, caplog):
+    """Empty api_key falls back to local mode; legacy methods raise a clear error."""
+    import warnings
+    from pageindex.errors import PageIndexAPIError
+
+    client = PageIndexClient(api_key="", storage_path=str(tmp_path / "pi"))
+    # Empty api_key → local mode; legacy methods should explain why
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", PendingDeprecationWarning)
+        with pytest.raises(PageIndexAPIError, match="empty string"):
+            client.submit_document("some.pdf")
+
+
+def test_none_api_key_legacy_method_error_is_generic(tmp_path):
+    """api_key=None → local mode; legacy methods raise generic error (not 'empty')."""
+    import warnings
+    from pageindex.errors import PageIndexAPIError
+
+    client = PageIndexClient(api_key=None, model="gpt-4o", storage_path=str(tmp_path / "pi"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", PendingDeprecationWarning)
+        with pytest.raises(PageIndexAPIError) as exc_info:
+            client.submit_document("some.pdf")
+    assert "empty" not in str(exc_info.value)
+
+
 def test_collection_default_name(tmp_path):
     client = LocalClient(model="gpt-4o", storage_path=str(tmp_path / "pi"))
     col = client.collection()

@@ -79,7 +79,9 @@ class LocalBackend:
             raise FileTypeError(f"Not a regular file: {file_path}")
         parser = self._resolve_parser(file_path)
 
-        # Dedup: skip if same file already indexed in this collection
+        # Dedup is content-only — same file is reused regardless of IndexConfig
+        # changes. If you've changed IndexConfig and need a fresh tree, delete
+        # the existing doc first or use a new collection.
         file_hash = self._file_hash(file_path)
         existing_id = self._storage.find_document_by_hash(collection, file_hash)
         if existing_id:
@@ -265,8 +267,20 @@ class LocalBackend:
             )
         return [by_id[did] for did in doc_ids]
 
-    def query(self, collection: str, question: str, doc_ids: list[str] | None = None) -> str:
+    @staticmethod
+    def _normalize_doc_ids(doc_ids: str | list[str] | None) -> list[str] | None:
+        if isinstance(doc_ids, str):
+            return [doc_ids]
+        if doc_ids == []:
+            raise ValueError(
+                "doc_ids cannot be empty; pass None to query the whole collection"
+            )
+        return doc_ids
+
+    def query(self, collection: str, question: str,
+              doc_ids: str | list[str] | None = None) -> str:
         from ..agent import AgentRunner, SCOPED_SYSTEM_PROMPT, wrap_with_doc_context
+        doc_ids = self._normalize_doc_ids(doc_ids)
         tools = self.get_agent_tools(collection, doc_ids)
         instructions = None
         if doc_ids:
@@ -277,8 +291,9 @@ class LocalBackend:
                            instructions=instructions).run(question)
 
     async def query_stream(self, collection: str, question: str,
-                           doc_ids: list[str] | None = None):
+                           doc_ids: str | list[str] | None = None):
         from ..agent import QueryStream, SCOPED_SYSTEM_PROMPT, wrap_with_doc_context
+        doc_ids = self._normalize_doc_ids(doc_ids)
         tools = self.get_agent_tools(collection, doc_ids)
         instructions = None
         if doc_ids:

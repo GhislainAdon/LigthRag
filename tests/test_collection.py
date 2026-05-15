@@ -82,3 +82,15 @@ def test_query_env_var_silences_warning(col, monkeypatch, recwarn):
     col._backend.query.return_value = "answer"
     col.query("what?")
     assert not any(issubclass(w.category, UserWarning) for w in recwarn)
+
+
+def test_query_accepts_str_doc_id(col):
+    """str gets normalized to [str] internally."""
+    col._backend.query.return_value = "answer"
+    col.query("what?", doc_ids="d1")
+    col._backend.query.assert_called_once_with("papers", "what?", ["d1"])
+
+
+def test_query_rejects_empty_list(col):
+    with pytest.raises(ValueError, match="cannot be empty"):
+        col.query("what?", doc_ids=[])

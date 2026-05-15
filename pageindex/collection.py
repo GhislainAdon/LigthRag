@@ -12,10 +12,11 @@ def _multidoc_acked() -> bool:
 
 
 _MULTIDOC_WARNING = (
-    "Querying the entire collection (no doc_ids) is experimental — selection "
-    "accuracy depends on auto-generated doc descriptions. Pass doc_ids=[...] "
-    "for reliable results, or set PAGEINDEX_EXPERIMENTAL_MULTIDOC=1 to silence "
-    "this warning."
+    "Querying the entire collection (no doc_ids) is experimental — a naive "
+    "first implementation that lets the agent pick docs from auto-generated "
+    "descriptions. Better cross-document retrieval is on the way. Pass "
+    "doc_ids=[...] for reliable results, or set "
+    "PAGEINDEX_EXPERIMENTAL_MULTIDOC=1 to silence this warning."
 )
 
 
@@ -66,22 +67,33 @@ class Collection:
     def delete_document(self, doc_id: str) -> None:
         self._backend.delete_document(self._name, doc_id)
 
-    def query(self, question: str, doc_ids: list[str] | None = None,
+    def query(self, question: str,
+              doc_ids: str | list[str] | None = None,
               stream: bool = False) -> str | QueryStream:
         """Query documents in this collection.
 
         - stream=False: returns answer string (sync)
         - stream=True: returns async iterable of QueryEvent
 
+        ``doc_ids`` can be a single doc id (``str``) or a list. ``None`` queries
+        the entire collection (experimental).
+
         Usage:
-            answer = col.query("question", doc_ids=[doc_id])
-            async for event in col.query("question", doc_ids=[doc_id], stream=True):
+            answer = col.query("question", doc_ids=doc_id)            # single
+            answer = col.query("question", doc_ids=[d1, d2])          # multi
+            async for event in col.query("question", doc_ids=doc_id, stream=True):
                 ...
 
         Passing doc_ids=None queries the entire collection — this is
         experimental; emits a UserWarning unless PAGEINDEX_EXPERIMENTAL_MULTIDOC
         is set.
         """
+        if isinstance(doc_ids, str):
+            doc_ids = [doc_ids]
+        elif doc_ids == []:
+            raise ValueError(
+                "doc_ids cannot be empty; pass None to query the whole collection"
+            )
         if doc_ids is None and not _multidoc_acked():
             docs = self._backend.list_documents(self._name)
             if not docs:
