@@ -204,6 +204,8 @@ class PIFSAgentStreamTest(unittest.TestCase):
         self.assertIn("prefer\ncat <path> --node <node_id>", BASH_TOOL_DESCRIPTION)
         self.assertIn("stop if the evidence is sufficient", AGENT_TOOL_POLICY)
         self.assertIn("continue with another chunk before answering", BASH_TOOL_DESCRIPTION)
+        self.assertIn("Do not reconstruct paths from document titles", BASH_TOOL_DESCRIPTION)
+        self.assertIn("file_ref/document_id", AGENT_TOOL_POLICY)
 
     def test_prompt_requires_stat_for_metadata_questions(self):
         self.assertIn("stat --schema and stat <target>", AGENT_TOOL_POLICY)
@@ -218,6 +220,12 @@ class PIFSAgentStreamTest(unittest.TestCase):
         self.assertIn('use search-summary "<query>" <folder>', AGENT_TOOL_POLICY)
         self.assertIn('search-summary "Federal Reserve" /documents', BASH_TOOL_DESCRIPTION)
         self.assertIn("do not translate that request into find --where", AGENT_TOOL_POLICY)
+        self.assertIn("verify the relevant facts with cat", AGENT_TOOL_POLICY)
+        self.assertIn("verify the relevant claim with cat", BASH_TOOL_DESCRIPTION)
+
+    def test_prompt_rejects_find_grep_as_exhaustive_search(self):
+        self.assertIn("Do not use find | grep as an exhaustive search", AGENT_TOOL_POLICY)
+        self.assertIn("find output can be scoped or limited", AGENT_TOOL_POLICY)
 
     def test_system_prompt_sets_workspace_identity_and_scope(self):
         self.assertIn("PageIndex FileSystem Demo Agent", AGENT_SYSTEM_PROMPT)

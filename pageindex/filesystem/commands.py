@@ -534,7 +534,11 @@ class PIFSCommandExecutor:
                     "cat accepts one file target. Use target-first syntax: "
                     "cat <path|file_ref|document_id> --structure, "
                     "cat <path|file_ref|document_id> --node 0002 0004, or "
-                    "cat <path|file_ref|document_id> --page 31-33"
+                    "cat <path|file_ref|document_id> --page 31-33. "
+                    f"Unexpected extra argument: {arg!r}. If the target path or title contains "
+                    "spaces, quote the whole target, for example: cat \"/documents/report name.pdf\" "
+                    "--structure. If a title-derived path is ambiguous, use the file_ref or "
+                    "document_id instead."
                 )
             i += 1
         if structural_mode == "structure":

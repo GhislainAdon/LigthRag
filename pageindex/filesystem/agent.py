@@ -60,9 +60,11 @@ commands described in the workspace context. grep -R is lexical evidence search;
 grep does not support regex alternation such as "a|b"; run multiple grep
 commands or use search-summary for semantic candidate discovery instead.
 semantic search commands such as search-summary return candidate documents and
-do not guarantee literal text matches. Use search-summary when the user asks for
-summary search, semantic search, or vector search and the command is listed as
-available. Quote multi-word semantic queries, for example:
+do not guarantee literal text matches or final answer evidence. After choosing
+a likely search-summary candidate, verify the relevant claim with cat before
+answering. Use search-summary when the user asks for summary search, semantic
+search, or vector search and the command is listed as available. Quote
+multi-word semantic queries, for example:
 search-summary "Federal Reserve" /documents. Do not write
 search-summary Federal Reserve /documents. Errors are returned as text prefixed
 with ERROR. Do not call
@@ -70,7 +72,9 @@ commands that are not listed as available. When evidence is required, inspect it
 with cat or grep before answering. Prefer shell-like target-first cat syntax
 with stable targets: cat <path> --structure, cat <path> --page 31-59, and
 cat <path> --node 0009. You may also use file_ref or document_id when a path is
-ambiguous. After structure identifies a relevant section node, prefer
+ambiguous. Do not reconstruct paths from document titles; use exact targets
+returned by PIFS commands and quote paths containing spaces. After structure
+identifies a relevant section node, prefer
 cat <path> --node <node_id>; use cat <path> --page <range> when the user asks
 for page-level evidence, no suitable node exists, or exact page text is needed.
 cat <path> --structure is paginated; request more with --offset if needed. Page
@@ -94,11 +98,13 @@ Tool policy:
 - Use --where only with metadata fields shown by stat --schema.
 - grep -R performs lexical evidence search.
 - grep does not support regex alternation such as "a|b"; run separate grep commands or use search-summary for semantic candidate discovery.
-- Semantic search commands are candidate-discovery tools and do not guarantee literal text matches.
+- Semantic search commands are candidate-discovery tools and do not guarantee literal text matches or final answer evidence. After selecting a likely search-summary candidate, verify the relevant facts with cat before answering.
+- Do not use find | grep as an exhaustive search or as proof that no document exists; find output can be scoped or limited. Use metadata filters, search-summary, grep on a narrowed target, or cat on likely candidates instead.
 - A single failed grep is not enough evidence to say there is no relevant document. If grep returns no matches for a workspace-topic question, verify with search-summary or another available semantic/vector candidate command, or inspect likely document structure, before answering no-evidence.
 - If search-summary is available and the user asks for summary search, semantic search, vector search, or "用 summary 搜", use search-summary "<query>" <folder>; quote multi-word queries, for example search-summary "Federal Reserve" /documents; do not translate that request into find --where.
 - Tool errors are returned as ERROR text; recover by trying an available command.
 - Use cat or grep to gather evidence before making source-backed claims.
+- Do not reconstruct a file path from a title. Use exact paths returned by PIFS commands, or use file_ref/document_id when available; quote paths that contain spaces.
 - For broad topic, method, or "what solution" questions that are likely about the workspace, search for candidate documents before asking the user to choose a document.
 - Use stat only for metadata/schema/status questions or to resolve ambiguous target identity. Do not run stat merely to understand what a document says.
 - Prefer target-first cat syntax with stable targets: cat <path> --structure, cat <path> --page 31-59, cat <path> --node <node_id>.

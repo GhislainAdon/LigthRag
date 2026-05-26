@@ -517,7 +517,7 @@ def test_cat_structure_page_node_and_text_outputs_are_hard_limited():
                 "0006 0007 0008 0009 0010 0011"
             )
 
-        with pytest.raises(PIFSCommandError, match="cat accepts one file target"):
+        with pytest.raises(PIFSCommandError, match="quote the whole target"):
             executor.execute("cat dsid_limited_pdf 0001")
 
         text = json.loads(executor.execute("cat dsid_long_text --all"))
