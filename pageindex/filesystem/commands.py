@@ -1337,6 +1337,23 @@ class PIFSCommandExecutor:
             return f"{folder}/{title}" if folder else f"/{title}"
         return str(item.get("source_path") or item.get("external_id") or file_ref or "-")
 
+    def _stable_file_target_path(self, item: dict[str, Any]) -> str:
+        file_ref = str(item.get("file_ref") or "").strip()
+        source_path = str(item.get("source_path") or "").strip()
+        if source_path:
+            target = "/" + source_path.strip("/")
+            try:
+                if not file_ref or self.filesystem.store.resolve_file_ref(target) == file_ref:
+                    return target
+            except KeyError:
+                pass
+        external_id = str(item.get("external_id") or "").strip()
+        if external_id:
+            return external_id
+        if file_ref:
+            return file_ref
+        return str(item.get("external_id") or item.get("file_ref") or "-")
+
     def _semantic_retrieval_query(self, query: str) -> str:
         query = str(query or "").strip()
         context = str(self.query_context or "").strip()
@@ -1464,7 +1481,7 @@ class PIFSCommandExecutor:
             if text:
                 line_text = f"{line}: {self._compact_text(text, max_chars=220)}"
             hit = {
-                "path": self._file_target_path(
+                "path": self._stable_file_target_path(
                     {
                         "file_ref": result.file_ref,
                         "title": result.title,

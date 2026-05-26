@@ -83,7 +83,7 @@ def test_semantic_search_scope_keeps_ordinary_folders_out_of_source_type_filters
         workspace=tmp_path / "workspace",
         metadata_generator=SummaryGenerator(),
     )
-    filesystem.register_file(
+    file_ref = filesystem.register_file(
         storage_uri="file:///tmp/report.pdf",
         source_path="examples/documents/report.pdf",
         folder_path="/documents",
@@ -110,18 +110,131 @@ def test_semantic_search_scope_keeps_ordinary_folders_out_of_source_type_filters
 
     assert backend.calls[0][2] == {}
     assert result["data"]["data"][0] == {
-        "path": "/documents/report.pdf",
+        "path": "/examples/documents/report.pdf",
         "summary": "Federal Reserve annual report summary",
         "line_text": "1: Federal Reserve supervision and regulation annual report.",
     }
+    assert filesystem.store.resolve_file_ref(result["data"]["data"][0]["path"]) == file_ref
 
     executor.json_output = False
     rendered = executor.execute('search-summary "Federal Reserve annual report" /documents')
-    assert "path: /documents/report.pdf" in rendered
+    assert "path: /examples/documents/report.pdf" in rendered
     assert "summary: Federal Reserve annual report summary" in rendered
     assert "line_text: 1: Federal Reserve supervision and regulation annual report." in rendered
     assert "id=dsid_report" not in rendered
     assert "file_ref=" not in rendered
+
+
+def test_semantic_search_path_is_unique_source_target_when_titles_collide(tmp_path):
+    from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+    from pageindex.filesystem.metadata_generation import MetadataGenerationResult
+
+    class SummaryGenerator:
+        def generate(self, document, *, fields):
+            return MetadataGenerationResult(
+                values={"summary": f"summary for {document.external_id}"}
+            )
+
+    filesystem = PageIndexFileSystem(
+        workspace=tmp_path / "workspace",
+        metadata_generator=SummaryGenerator(),
+    )
+    first_ref = filesystem.register_file(
+        storage_uri="file:///tmp/first.json",
+        source_path="slack/dsid_first.json",
+        folder_path="/documents",
+        external_id="dsid_first",
+        title="announcements",
+        content="first announcement mentions H200 reservations.",
+        metadata_policy={
+            "fields": {
+                "summary": True,
+                "doc_type": False,
+                "domain": False,
+                "topic": False,
+            }
+        },
+    )
+    filesystem.register_file(
+        storage_uri="file:///tmp/second.json",
+        source_path="slack/dsid_second.json",
+        folder_path="/documents",
+        external_id="dsid_second",
+        title="announcements",
+        content="second announcement mentions unrelated maintenance.",
+        metadata_policy={
+            "fields": {
+                "summary": True,
+                "doc_type": False,
+                "domain": False,
+                "topic": False,
+            }
+        },
+    )
+    filesystem.semantic_retrieval_backend = SummaryBackend("dsid_first")
+    executor = PIFSCommandExecutor(filesystem, json_output=True)
+
+    result = json.loads(executor.execute('search-summary "H200 reservations" /documents'))
+
+    assert result["data"]["data"][0]["path"] == "/slack/dsid_first.json"
+    assert filesystem.store.resolve_file_ref(result["data"]["data"][0]["path"]) == first_ref
+    with pytest.raises(KeyError, match="Ambiguous file target"):
+        filesystem.store.resolve_file_ref("/documents/announcements")
+
+
+def test_semantic_search_path_falls_back_when_source_target_is_ambiguous(tmp_path):
+    from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+    from pageindex.filesystem.metadata_generation import MetadataGenerationResult
+
+    class SummaryGenerator:
+        def generate(self, document, *, fields):
+            return MetadataGenerationResult(
+                values={"summary": f"summary for {document.external_id}"}
+            )
+
+    filesystem = PageIndexFileSystem(
+        workspace=tmp_path / "workspace",
+        metadata_generator=SummaryGenerator(),
+    )
+    first_ref = filesystem.register_file(
+        storage_uri="file:///tmp/first.json",
+        source_path="shared/source.json",
+        folder_path="/documents",
+        external_id="dsid_first",
+        title="First",
+        content="first content",
+        metadata_policy={
+            "fields": {
+                "summary": True,
+                "doc_type": False,
+                "domain": False,
+                "topic": False,
+            }
+        },
+    )
+    filesystem.register_file(
+        storage_uri="file:///tmp/second.json",
+        source_path="shared/source.json",
+        folder_path="/documents",
+        external_id="dsid_second",
+        title="Second",
+        content="second content",
+        metadata_policy={
+            "fields": {
+                "summary": True,
+                "doc_type": False,
+                "domain": False,
+                "topic": False,
+            }
+        },
+    )
+    filesystem.semantic_retrieval_backend = SummaryBackend("dsid_first")
+    executor = PIFSCommandExecutor(filesystem, json_output=True)
+
+    result = json.loads(executor.execute('search-summary "first" /documents'))
+
+    assert result["data"]["data"][0]["path"] == "dsid_first"
+    assert filesystem.store.resolve_file_ref(result["data"]["data"][0]["path"]) == first_ref
 
 
 def test_entity_relation_search_return_minimal_fields_with_summary(tmp_path):
@@ -164,7 +277,7 @@ def test_entity_relation_search_return_minimal_fields_with_summary(tmp_path):
 
     entity = json.loads(executor.execute('search-entity "Federal Reserve" /documents'))
     assert entity["data"]["data"][0] == {
-        "path": "/documents/market-note.pdf",
+        "path": "/examples/documents/market-note.pdf",
         "summary": "Risk and compliance summary",
         "line_text": "1: Federal Reserve policy affects Disney valuation.",
         "entity": "Federal Reserve; Disney",
@@ -172,7 +285,7 @@ def test_entity_relation_search_return_minimal_fields_with_summary(tmp_path):
 
     relation = json.loads(executor.execute('search-relation "Disney valuation" /documents'))
     assert relation["data"]["data"][0] == {
-        "path": "/documents/market-note.pdf",
+        "path": "/examples/documents/market-note.pdf",
         "summary": "Risk and compliance summary",
         "line_text": "1: Federal Reserve policy affects Disney valuation.",
         "relation": "Federal Reserve affects Disney valuation",
@@ -180,7 +293,7 @@ def test_entity_relation_search_return_minimal_fields_with_summary(tmp_path):
 
     executor.json_output = False
     rendered = executor.execute('search-entity "Federal Reserve" /documents')
-    assert "path: /documents/market-note.pdf" in rendered
+    assert "path: /examples/documents/market-note.pdf" in rendered
     assert "summary: Risk and compliance summary" in rendered
     assert "entity: Federal Reserve; Disney" in rendered
     assert "file_ref=" not in rendered

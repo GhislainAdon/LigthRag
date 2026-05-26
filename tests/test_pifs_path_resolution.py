@@ -42,3 +42,30 @@ def test_ambiguous_virtual_file_path_raises_clear_error(tmp_path):
         filesystem.store.resolve_file_ref("/a/b/file.txt")
 
     assert first_ref != second_ref
+
+
+def test_duplicate_source_path_target_raises_clear_error(tmp_path):
+    from pageindex.filesystem import PageIndexFileSystem
+
+    filesystem = PageIndexFileSystem(workspace=tmp_path / "workspace")
+    first_ref = filesystem.register_file(
+        storage_uri="file:///tmp/first.txt",
+        source_path="shared/source.txt",
+        folder_path="/first",
+        external_id="doc_first",
+        title="First",
+        content="first content",
+    )
+    second_ref = filesystem.register_file(
+        storage_uri="file:///tmp/second.txt",
+        source_path="shared/source.txt",
+        folder_path="/second",
+        external_id="doc_second",
+        title="Second",
+        content="second content",
+    )
+
+    with pytest.raises(KeyError, match="Ambiguous file target"):
+        filesystem.store.resolve_file_ref("/shared/source.txt")
+
+    assert first_ref != second_ref

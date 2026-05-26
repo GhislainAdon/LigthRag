@@ -1050,12 +1050,29 @@ class SQLiteFileSystemStore:
         if row:
             return row["file_ref"]
         stripped = target.strip("/")
-        row = conn.execute(
-            "SELECT file_ref FROM files WHERE source_path = ? AND deleted_at IS NULL",
+        rows = conn.execute(
+            """
+            SELECT
+                f.file_ref,
+                f.external_id,
+                f.title,
+                f.source_path,
+                COALESCE(MIN(fo.path), '/') AS folder_path
+            FROM files f
+            LEFT JOIN file_folders ff ON ff.file_ref = f.file_ref
+            LEFT JOIN folders fo ON fo.folder_id = ff.folder_id
+            WHERE f.source_path = ? AND f.deleted_at IS NULL
+            GROUP BY f.file_ref, f.external_id, f.title, f.source_path
+            ORDER BY f.file_ref
+            LIMIT 2
+            """,
             (stripped,),
-        ).fetchone()
-        if row:
-            return row["file_ref"]
+        ).fetchall()
+        if len(rows) > 1:
+            matches = "; ".join(self._virtual_match_summary(row) for row in rows)
+            raise KeyError(f"Ambiguous file target: {target}. Matches: {matches}")
+        if rows:
+            return rows[0]["file_ref"]
         virtual_file_ref = self._resolve_virtual_file_ref(conn, target)
         if virtual_file_ref:
             return virtual_file_ref
