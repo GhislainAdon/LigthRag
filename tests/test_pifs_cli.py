@@ -55,6 +55,57 @@ def test_cli_passthrough_invokes_pifs_command_executor(monkeypatch, capsys, tmp_
     assert executor_instances[0].commands == ["ls /documents"]
 
 
+def test_cli_set_workspace_persists_default(monkeypatch, capsys, tmp_path):
+    from pageindex.filesystem import cli
+
+    config_path = tmp_path / "pifs.json"
+    workspace = tmp_path / "workspace"
+    monkeypatch.setenv("PIFS_CONFIG_FILE", str(config_path))
+
+    status = cli.main(["set", "workspace", str(workspace)])
+
+    assert status == 0
+    output = capsys.readouterr().out
+    assert f"workspace: {workspace}" in output
+    assert f"config: {config_path}" in output
+    assert config_path.read_text(encoding="utf-8") == (
+        '{\n  "workspace": "' + str(workspace) + '"\n}\n'
+    )
+
+
+def test_cli_passthrough_uses_configured_workspace(monkeypatch, capsys, tmp_path):
+    from pageindex.filesystem import cli
+
+    config_path = tmp_path / "pifs.json"
+    workspace = tmp_path / "workspace"
+    executor_instances = []
+    monkeypatch.setenv("PIFS_CONFIG_FILE", str(config_path))
+    monkeypatch.delenv("PIFS_WORKSPACE", raising=False)
+
+    class FakeExecutor:
+        def __init__(self, filesystem, *, json_output=False):
+            self.filesystem = filesystem
+            self.json_output = json_output
+            self.commands = []
+            executor_instances.append(self)
+
+        def execute(self, command):
+            self.commands.append(command)
+            return f"executed:{command}"
+
+    monkeypatch.setattr(cli, "PageIndexFileSystem", FakeFileSystem)
+    monkeypatch.setattr(cli, "PIFSCommandExecutor", FakeExecutor)
+
+    assert cli.main(["set", "workspace", str(workspace)]) == 0
+    capsys.readouterr()
+
+    status = cli.main(["ls", "/documents"])
+
+    assert status == 0
+    assert capsys.readouterr().out == "executed:ls /documents\n"
+    assert executor_instances[0].filesystem.workspace == workspace
+
+
 def test_cli_ask_invokes_agent_with_question(monkeypatch, capsys, tmp_path):
     from pageindex.filesystem import cli
 
