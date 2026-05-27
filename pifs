@@ -1,6 +1,10 @@
-#!/usr/bin/env python3
-from pageindex.filesystem.cli import main
+#!/bin/sh
+set -eu
 
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
+  exec "$SCRIPT_DIR/.venv/bin/python" -m pageindex.filesystem.cli "$@"
+fi
+
+exec python3 -m pageindex.filesystem.cli "$@"

@@ -1,6 +1,7 @@
 litellm==1.83.7
-# openai-agents  # optional: required for examples/agentic_vectorless_rag_demo.py
+# openai-agents==0.17.2  # optional: required for pifs chat/ask and examples/agentic_vectorless_rag_demo.py
 pymupdf==1.26.4
 PyPDF2==3.0.1
 python-dotenv==1.2.2
 pyyaml==6.0.2
+sqlite-vec>=0.1.9
