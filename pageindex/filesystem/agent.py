@@ -35,17 +35,19 @@ document contents in the workspace.
 
 If the user asks what tools or capabilities you have, describe only the PIFS
 virtual shell capabilities available inside this workspace: ls, tree, find,
-stat, grep, cat, and browse. Do not mention host runtime tools, SDK internals,
-or orchestration helpers that are not part of the PIFS shell.
+stat, grep, cat, and browse when they are available. Do not mention host
+runtime tools, SDK internals, or orchestration helpers that are not part of the
+PIFS shell.
 
 If the user asks a workspace-related topic question without naming a specific
-file, treat it as a retrieval task. Use available PIFS discovery commands to
-look for relevant files and inspect evidence before answering. Ask the user to
-clarify only after a reasonable search cannot identify relevant evidence.
+file, treat it as a retrieval task. Start with ls or tree to understand the
+folder structure, choose a folder, then use browse with the user's topic as the
+query to find candidate files. Inspect evidence before answering. Ask the user
+to clarify only after a reasonable search cannot identify relevant evidence.
 Do not conclude that no relevant document exists from one failed grep. If grep
-returns no matches for a workspace topic, verify with available semantic
-candidate discovery through browse, or inspect likely document structure,
-before saying that the workspace lacks evidence.
+returns no matches for a workspace topic, use browse on a relevant folder or
+inspect likely document structure before saying that the workspace lacks
+evidence.
 
 Follow the task prompt for command policy, retrieval strategy, and answer
 format. If the caller needs stricter behavior, pass an explicit system_prompt.
@@ -54,25 +56,24 @@ format. If the caller needs stricter behavior, pass an explicit system_prompt.
 BASH_TOOL_DESCRIPTION = """
 Run a command in the PageIndex FileSystem virtual shell. This is not a real
 operating-system shell. By default the tool is read-only: use ls, tree, find,
-grep, cat, stat, head, tail, sed, and browse as described in the workspace
-context. grep -R is lexical evidence search;
-grep does not support regex alternation such as "a|b"; run multiple grep
-commands or use browse for semantic candidate discovery instead. browse returns
-candidate documents ranked by relevance and does not guarantee literal text
-matches or final answer evidence. After choosing a likely browse candidate,
-verify the relevant claim with cat before answering. Use browse when the user
-asks for summary search, semantic search, or vector search and the command is
-listed as available. Quote multi-word semantic queries, for example:
-browse /documents "Federal Reserve". Do not write
-browse /documents Federal Reserve. Errors are returned as text prefixed with
-ERROR. Do not call
-commands that are not listed as available. When evidence is required, inspect it
-with cat or grep before answering. Prefer shell-like target-first cat syntax
-with stable targets: cat <path> --structure, cat <path> --page 31-59, and
-cat <path> --node 0009. You may also use file_ref or document_id when a path is
-ambiguous. Do not reconstruct paths from document titles; use exact targets
-returned by PIFS commands and quote paths containing spaces. After structure
-identifies a relevant section node, prefer
+grep, cat, stat, head, tail, sed, and browse when listed in the workspace
+context. grep -R is lexical evidence search; grep does not support regex
+alternation such as "a|b"; run multiple grep commands or use browse for
+relevance-ranked file discovery instead. Start broad workspace questions with
+ls or tree to understand folders. After choosing a folder, use positional
+browse syntax with a quoted query, for example:
+browse /documents "Federal Reserve". If the relevant folder is uncertain, use
+browse -R /documents "Federal Reserve" to retrieve file candidates across that
+folder tree. browse returns file candidates only; it does not perform folder
+semantic recall and does not guarantee final answer evidence. After choosing a
+likely browse candidate, verify the relevant claim with cat or grep before
+answering. Errors are returned as text prefixed with ERROR. Do not call commands
+that are not listed as available. When evidence is required, inspect it with cat
+or grep before answering. Prefer shell-like target-first cat syntax with stable
+targets: cat <path> --structure, cat <path> --page 31-59, and cat <path> --node
+0009. You may also use file_ref or document_id when a path is ambiguous. Do not reconstruct paths from document titles; use exact targets returned by PIFS
+commands and quote paths containing spaces. After structure identifies a
+relevant section node, prefer
 cat <path> --node <node_id>; use cat <path> --page <range> when the user asks
 for page-level evidence, no suitable node exists, or exact page text is needed.
 cat <path> --structure is paginated; request more with --offset if needed. Page
@@ -83,8 +84,8 @@ continue with another chunk before answering.
 For questions about metadata fields, available summaries, or whether metadata
 was provided, inspect stat --schema and stat <target> before making claims.
 Do not use stat as a general content/topic discovery step. For document Q&A,
-prefer ls/tree to choose a folder, browse/find/grep for candidates, then cat --structure and
-cat --node or cat --page for evidence.
+prefer ls/tree for folder selection, browse for file candidates, then cat
+--structure and cat --node or cat --page for evidence.
 """
 
 AGENT_TOOL_POLICY = """
@@ -94,12 +95,16 @@ Tool policy:
 - Use only commands listed in the workspace capabilities.
 - Folder paths such as /documents are positional command targets; never put folder paths in --where.
 - Use --where only with metadata fields shown by stat --schema.
+- Start with ls or tree to understand workspace and folder structure before semantic file retrieval.
+- After choosing a folder, use browse <folder> "<query>" for relevance-ranked file candidates; quote multi-word queries, for example browse /documents "Federal Reserve".
+- If the relevant folder is uncertain, use browse -R <folder> "<query>" to search recursively from a structural parent folder.
+- browse returns file candidates only; Do not use browse as folder semantic recall.
+- browse candidates are not final evidence. After selecting candidates, verify the relevant facts with cat or grep before making source-backed claims.
 - grep -R performs lexical evidence search.
-- grep does not support regex alternation such as "a|b"; run separate grep commands or use browse for semantic candidate discovery.
-- browse is the semantic candidate-discovery tool and does not guarantee literal text matches or final answer evidence. After selecting a likely browse candidate, verify the relevant facts with cat before answering.
+- grep does not support regex alternation such as "a|b"; run separate grep commands or use browse for relevance-ranked file discovery.
 - Do not use find | grep as an exhaustive search or as proof that no document exists; find output can be scoped or limited. Use metadata filters, browse, grep on a narrowed target, or cat on likely candidates instead.
-- A single failed grep is not enough evidence to say there is no relevant document. If grep returns no matches for a workspace-topic question, verify with browse or inspect likely document structure, before answering no-evidence.
-- If the user asks for summary search, semantic search, vector search, or "用 summary 搜", use browse <folder> "<query>"; quote multi-word queries, for example browse /documents "Federal Reserve"; use browse -R <folder> when the folder choice is uncertain; do not translate that request into find --where.
+- A single failed grep is not enough evidence to say there is no relevant document. If grep returns no matches for a workspace-topic question, verify with browse on a relevant folder or inspect likely document structure before answering no-evidence.
+- If the user asks for summary search, semantic search, vector search, or "用 summary 搜", use browse <folder> "<query>" with the default summary space; do not translate that request into find --where.
 - Tool errors are returned as ERROR text; recover by trying an available command.
 - Use cat or grep to gather evidence before making source-backed claims.
 - Do not reconstruct a file path from a title. Use exact paths returned by PIFS commands, or use file_ref/document_id when available; quote paths that contain spaces.

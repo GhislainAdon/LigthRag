@@ -4,8 +4,8 @@ PageIndex FileSystem (PIFS) agent demo.
 This mirrors examples/agentic_vectorless_rag_demo.py, but exposes a corpus
 through the PageIndex FileSystem shell instead of direct PageIndex document
 tools. The agent receives one read-only bash-like PIFS tool and must retrieve
-evidence through commands such as ls, tree, find, grep, browse,
-cat <path> --structure, cat <path> --page, and cat <path> --node.
+evidence through commands such as ls, tree, browse, find, grep, cat <path>
+--structure, cat <path> --page, and cat <path> --node.
 
 The demo registers supported files under examples/documents. When a matching
 examples/documents/results/*_structure.json file exists, it is loaded into the
@@ -72,9 +72,15 @@ Retrieval strategy:
   or stable file_ref/document ids. Do not invent temporary ref_N aliases.
 - Folder paths such as /documents are positional command targets; do not put
   folder paths inside --where.
-- Use browse when available to find likely documents by semantic relevance.
-  Quote multi-word queries and include a path, for example:
+- After choosing a folder, use browse with a required quoted query to find
+  likely files, for example:
   browse /documents "Federal Reserve supervision regulation"
+- If the folder is uncertain, use recursive browse from a structural parent,
+  for example:
+  browse -R /documents "Federal Reserve supervision regulation"
+- browse returns file candidates only; it is not folder semantic recall.
+- After browse returns candidates, verify evidence with grep, cat <path>
+  --structure, cat <path> --node, or cat <path> --page before answering.
 - Use find --where only with JSON metadata DSL, for example:
   find /documents --where '{"file_format":"pdf"}'
 - Use grep -R only for lexical evidence; do not treat semantic candidates as
@@ -643,14 +649,14 @@ def run_smoke_commands(
     )
 
     command = 'browse /documents "Federal Reserve annual report supervision regulation section page range"'
-    summary = execute_json_command(json_executor, command)
-    summary_hits = ((summary.get("data") or {}).get("data") or [])
-    if summary_hits:
-        summary_result = f"{len(summary_hits)} browse candidates; top={summary_hits[0].get('external_id')}"
+    browse = execute_json_command(json_executor, command)
+    browse_hits = ((browse.get("data") or {}).get("data") or [])
+    if browse_hits:
+        summary_result = f"{len(browse_hits)} browse candidates; top={browse_hits[0].get('external_id')}"
     else:
         summary_result = "browse is available, but this tiny two-doc demo returned no candidates"
     show_capability(
-        label="Semantic browse",
+        label="Relevance browse",
         command=command,
         result=summary_result,
         raw=shell_executor.execute(command) if verbose else "",
