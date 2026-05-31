@@ -23,17 +23,11 @@ from .store import (
     metadata_text,
     normalize_path,
 )
-from .structural_read import (
-    flatten_pageindex_structure_nodes,
-    first_node_location,
-    find_pageindex_node,
-    strip_pageindex_text_fields,
-)
 from .types import OpenResult, SearchResult
 
 if TYPE_CHECKING:
     from ..client import PageIndexClient
-    from .projection_indexing import SummaryProjectionIndexer
+    from .semantic_projection import SummaryProjectionIndexer
 
 DEFAULT_METADATA_GENERATION_FIELDS = {
     "summary": True,
@@ -92,6 +86,18 @@ ADD_FILE_CONTENT_TYPES = {
     ".txt": "text/plain",
     ".text": "text/plain",
 }
+
+
+def strip_pageindex_text_fields(value: Any) -> Any:
+    if isinstance(value, list):
+        return [strip_pageindex_text_fields(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: strip_pageindex_text_fields(item)
+            for key, item in value.items()
+            if key != "text"
+        }
+    return value
 
 
 class PageIndexFileSystem:
@@ -325,9 +331,9 @@ class PageIndexFileSystem:
                 model=self.metadata_model,
                 base_url=self.metadata_base_url,
                 max_text_chars=self.metadata_max_text_chars,
-            )
+        )
         if self.summary_projection_index and self.summary_projection_indexer is None:
-            from .projection_indexing import SummaryProjectionIndexer
+            from .semantic_projection import SummaryProjectionIndexer
 
             self.summary_projection_indexer = SummaryProjectionIndexer.from_provider(
                 self.summary_projection_index_dir,
@@ -337,7 +343,7 @@ class PageIndexFileSystem:
                 embedding_timeout=self.summary_projection_embedding_timeout,
             )
         if self.summary_projection_index and self.semantic_retrieval_backend is None:
-            self.configure_hybrid_projection_retrieval(
+            self.configure_semantic_projection_retrieval(
                 self.summary_projection_index_dir,
                 embedding_provider=self.summary_projection_embedding_provider,
                 embedding_model=self.summary_projection_embedding_model,
@@ -352,9 +358,9 @@ class PageIndexFileSystem:
                 model=self.metadata_model,
                 base_url=self.metadata_base_url,
                 max_text_chars=self.metadata_max_text_chars,
-            )
+        )
         if self.summary_projection_index and self.summary_projection_indexer is None:
-            from .projection_indexing import SummaryProjectionIndexer
+            from .semantic_projection import SummaryProjectionIndexer
 
             self.summary_projection_indexer = SummaryProjectionIndexer.from_provider(
                 self.summary_projection_index_dir,
@@ -368,12 +374,12 @@ class PageIndexFileSystem:
         indexer = self.summary_projection_indexer
         if indexer is None:
             raise RuntimeError("pifs add requires a summary projection indexer")
-        from .hybrid_projection import HybridProjectionSearchBackend
+        from .semantic_projection import SemanticProjectionSearchBackend
 
         index_dir = Path(getattr(indexer, "index_dir", self.summary_projection_index_dir))
         embedder = getattr(indexer, "embedder", None)
         if embedder is None:
-            self.configure_hybrid_projection_retrieval(
+            self.configure_semantic_projection_retrieval(
                 index_dir,
                 embedding_provider=str(
                     getattr(
@@ -396,7 +402,7 @@ class PageIndexFileSystem:
             )
         else:
             embedding_cache = getattr(indexer, "embedding_cache", None)
-            self.semantic_retrieval_backend = HybridProjectionSearchBackend(
+            self.semantic_retrieval_backend = SemanticProjectionSearchBackend(
                 index_dir,
                 embedder=embedder,
                 embedding_provider=str(
@@ -458,7 +464,7 @@ class PageIndexFileSystem:
                 f"{self.summary_projection_embedding_dimensions}. Rebuild the "
                 "projection index or use a matching embedding configuration."
             )
-        self.configure_hybrid_projection_retrieval(
+        self.configure_semantic_projection_retrieval(
             self.summary_projection_index_dir,
             embedding_provider=self.summary_projection_embedding_provider,
             embedding_model=self.summary_projection_embedding_model,
@@ -731,7 +737,7 @@ class PageIndexFileSystem:
             )
         return results
 
-    def configure_hybrid_projection_retrieval(
+    def configure_semantic_projection_retrieval(
         self,
         index_dir: Union[str, Path],
         *,
@@ -741,9 +747,9 @@ class PageIndexFileSystem:
         embedding_timeout: float = 60,
         fetch_multiplier: int = 100,
     ) -> Any:
-        from .hybrid_projection import HybridProjectionSearchBackend
+        from .semantic_projection import SemanticProjectionSearchBackend
 
-        self.semantic_retrieval_backend = HybridProjectionSearchBackend.from_provider(
+        self.semantic_retrieval_backend = SemanticProjectionSearchBackend.from_provider(
             index_dir,
             embedding_provider=embedding_provider,
             embedding_model=embedding_model,
@@ -795,7 +801,7 @@ class PageIndexFileSystem:
         if self._file_format(entry) in {"pdf", "markdown", "pageindex"}:
             raise ValueError(
                 "open() text artifact reads are not supported for PDF/Markdown PageIndex files; "
-                "use pageindex_structure(), pageindex_pages(), or pageindex_node()."
+                "use pageindex_structure() or pageindex_pages()."
             )
         if str(location).strip().lower() in {"all", "full", "*"}:
             return self._open_all(file_ref)
@@ -814,9 +820,6 @@ class PageIndexFileSystem:
     def pageindex_structure(
         self,
         target: str,
-        *,
-        offset: int = 0,
-        limit: int = 25,
     ) -> dict[str, Any]:
         file_ref = self._resolve_target(target)
         entry = self.store.get_file(file_ref)
@@ -838,12 +841,6 @@ class PageIndexFileSystem:
                 entry,
                 message=str(structure["error"]),
             )
-        node_rows = flatten_pageindex_structure_nodes(structure)
-        offset = max(0, offset)
-        limit = max(0, limit)
-        window = node_rows[offset : offset + limit] if limit else []
-        next_offset = offset + len(window)
-        has_more = next_offset < len(node_rows)
         return {
             "mode": "structure",
             "file_ref": file_ref,
@@ -852,67 +849,7 @@ class PageIndexFileSystem:
             "status": entry.pageindex_tree_status,
             "available": True,
             "pageindex_doc_id": doc_id,
-            "structure": window,
-            "structure_pagination": {
-                "offset": offset,
-                "limit": limit,
-                "returned_nodes": len(window),
-                "total_nodes": len(node_rows),
-                "has_more": has_more,
-                "next_offset": next_offset if has_more else None,
-            },
-        }
-
-    def pageindex_node(self, target: str, node_id: str) -> dict[str, Any]:
-        file_ref = self._resolve_target(target)
-        entry = self.store.get_file(file_ref)
-        self._require_pageindex_document_file(entry, "cat --node")
-        client, doc_id = self._pageindex_client_doc_for_entry(entry)
-        if doc_id is None:
-            return self._structural_unavailable(
-                "node",
-                entry,
-                node_id=node_id,
-                message=(
-                    "PageIndex structure is not cached for this file in the "
-                    "PageIndexClient workspace."
-                ),
-            )
-        client._ensure_doc_loaded(doc_id)
-        doc = client.documents.get(doc_id, {})
-        node = find_pageindex_node(doc.get("structure", []), node_id)
-        if node is None:
-            return self._structural_unavailable(
-                "node",
-                entry,
-                node_id=node_id,
-                message="PageIndex node was not found in the cached structure.",
-            )
-        text = str(node.get("text") or "")
-        if not text:
-            location = first_node_location(node)
-            if location:
-                content = self._client_json(client.get_page_content(doc_id, location))
-                if isinstance(content, list):
-                    text = "\n\n".join(str(page.get("content") or "") for page in content)
-        if not text:
-            return self._structural_unavailable(
-                "node",
-                entry,
-                node_id=node_id,
-                message="Cached PageIndex node has no text content.",
-            )
-        return {
-            "mode": "node",
-            "file_ref": file_ref,
-            "external_id": entry.external_id,
-            "source_path": entry.source_path,
-            "status": entry.pageindex_tree_status,
-            "available": True,
-            "pageindex_doc_id": doc_id,
-            "node_id": node_id,
-            "node": strip_pageindex_text_fields(node),
-            "text": text,
+            "structure": strip_pageindex_text_fields(structure),
         }
 
     def pageindex_pages(self, target: str, pages: str) -> dict[str, Any]:
@@ -970,8 +907,7 @@ class PageIndexFileSystem:
             f"{command} is only supported for txt/text files; "
             f"got source_path={entry.source_path!r}, content_type={entry.content_type!r}. "
             "Use cat <path|file_ref|document_id> --structure, "
-            "cat <path|file_ref|document_id> --page, or "
-            "cat <path|file_ref|document_id> --node for PDF/Markdown PageIndex files."
+            "or cat <path|file_ref|document_id> --page for PDF/Markdown PageIndex files."
         )
 
     def _require_pageindex_document_file(self, entry: Any, command: str) -> None:
@@ -1748,7 +1684,6 @@ class PageIndexFileSystem:
         entry: Any,
         *,
         message: str,
-        node_id: str | None = None,
         pages: str | None = None,
     ) -> dict[str, Any]:
         pageindex_tree_error = cls._pageindex_tree_failure_message(entry.metadata_status)
@@ -1765,8 +1700,6 @@ class PageIndexFileSystem:
         }
         if pageindex_tree_error:
             result["pageindex_tree_error"] = pageindex_tree_error
-        if node_id is not None:
-            result["node_id"] = node_id
         if pages is not None:
             result["pages"] = pages
         return result

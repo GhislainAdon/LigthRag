@@ -7,7 +7,7 @@ import pytest
 def test_filesystem_lazy_exports_remain_public():
     import pageindex.filesystem as filesystem
     from pageindex.filesystem import (
-        HybridProjectionSearchBackend,
+        SemanticProjectionSearchBackend,
         RebuildableSemanticIndex,
         SemanticIndexRecord,
         SemanticSearchResult,
@@ -16,7 +16,7 @@ def test_filesystem_lazy_exports_remain_public():
     )
 
     for name in (
-        "HybridProjectionSearchBackend",
+        "SemanticProjectionSearchBackend",
         "RebuildableSemanticIndex",
         "SemanticIndexRecord",
         "SemanticSearchResult",
@@ -26,7 +26,7 @@ def test_filesystem_lazy_exports_remain_public():
         assert name in filesystem.__all__
         assert name in dir(filesystem)
 
-    assert HybridProjectionSearchBackend.__name__ == "HybridProjectionSearchBackend"
+    assert SemanticProjectionSearchBackend.__name__ == "SemanticProjectionSearchBackend"
     assert RebuildableSemanticIndex.__name__ == "RebuildableSemanticIndex"
     assert SemanticIndexRecord.__name__ == "SemanticIndexRecord"
     assert SemanticSearchResult.__name__ == "SemanticSearchResult"
@@ -819,7 +819,7 @@ def test_existing_summary_projection_index_uses_current_config_when_dimensions_m
 
     monkeypatch.setattr(
         filesystem,
-        "configure_hybrid_projection_retrieval",
+        "configure_semantic_projection_retrieval",
         fake_configure,
     )
 
@@ -876,7 +876,7 @@ def test_existing_summary_projection_index_dimension_mismatch_rejects_retrieval(
 
     monkeypatch.setattr(
         filesystem,
-        "configure_hybrid_projection_retrieval",
+        "configure_semantic_projection_retrieval",
         fail_configure,
     )
 
@@ -892,9 +892,9 @@ def test_existing_summary_projection_index_dimension_mismatch_rejects_retrieval(
 
 def test_browse_semantic_files_uses_summary_projection_when_only_summary_available(tmp_path):
     from pageindex.filesystem import PageIndexFileSystem
-    from pageindex.filesystem.hybrid_projection import HybridProjectionSearchBackend
+    from pageindex.filesystem.semantic_projection import SemanticProjectionSearchBackend
     from pageindex.filesystem.metadata_generation import MetadataGenerationResult
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     class FixedEmbedder:
         def embed(self, texts):
@@ -916,7 +916,7 @@ def test_browse_semantic_files_uses_summary_projection_when_only_summary_availab
         embedding_model="fake",
         embedding_dimensions=3,
     )
-    backend = HybridProjectionSearchBackend(
+    backend = SemanticProjectionSearchBackend(
         index_dir,
         embedder=FixedEmbedder(),
         embedding_provider="test",

@@ -25,7 +25,7 @@ class StaticEmbedder:
 
 
 def make_summary_indexer(workspace: Path):
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     return SummaryProjectionIndexer(
         workspace / "artifacts" / "projection_indexes",

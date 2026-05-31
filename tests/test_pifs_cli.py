@@ -37,7 +37,7 @@ def test_cli_workspace_without_projection_index_does_not_require_sqlite_vec(
     workspace = tmp_path / "workspace"
     real_import = builtins.__import__
 
-    monkeypatch.delitem(sys.modules, "pageindex.filesystem.hybrid_projection", raising=False)
+    monkeypatch.delitem(sys.modules, "pageindex.filesystem.semantic_projection", raising=False)
     monkeypatch.delitem(sys.modules, "pageindex.filesystem.semantic_index", raising=False)
     monkeypatch.delitem(sys.modules, "sqlite_vec", raising=False)
 

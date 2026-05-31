@@ -338,7 +338,7 @@ def configure_summary_projection_backend(
 ) -> None:
     if not (filesystem.summary_projection_index_dir / "summary_only_vector.sqlite").exists():
         return
-    filesystem.configure_hybrid_projection_retrieval(
+    filesystem.configure_semantic_projection_retrieval(
         filesystem.summary_projection_index_dir,
         embedding_provider=embedding_provider,
         embedding_model=embedding_model,

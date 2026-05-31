@@ -102,7 +102,7 @@ def test_sqlite_vec_semantic_index_file_ref_filter_not_limited_by_global_rank(tm
 
 
 def test_summary_projection_indexes_unified_metadata_summary(tmp_path):
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     indexer = SummaryProjectionIndexer(
         tmp_path / "projection",
@@ -134,7 +134,7 @@ def test_summary_projection_indexes_unified_metadata_summary(tmp_path):
 
 
 def test_summary_projection_indexer_defaults_to_1024_dimensions(tmp_path):
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     indexer = SummaryProjectionIndexer(
         tmp_path / "projection",
@@ -164,7 +164,7 @@ def test_summary_projection_indexer_defaults_to_1024_dimensions(tmp_path):
 
 
 def test_summary_projection_indexer_allows_explicit_256_dimensions(tmp_path):
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     indexer = SummaryProjectionIndexer(
         tmp_path / "projection",
@@ -188,7 +188,7 @@ def test_summary_projection_indexer_allows_explicit_256_dimensions(tmp_path):
 
 
 def test_summary_projection_default_rejects_existing_256_index_for_writes(tmp_path):
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     index_dir = tmp_path / "projection"
     index = SQLiteVecSemanticIndex(index_dir / "summary_only_vector.sqlite")
@@ -216,8 +216,8 @@ def test_summary_projection_default_rejects_existing_256_index_for_writes(tmp_pa
 def test_summary_projection_from_provider_rejects_dimension_mismatch_before_embedder(
     tmp_path, monkeypatch
 ):
-    from pageindex.filesystem import projection_indexing
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem import semantic_projection
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     index_dir = tmp_path / "projection"
     index = SQLiteVecSemanticIndex(index_dir / "summary_only_vector.sqlite")
@@ -234,14 +234,14 @@ def test_summary_projection_from_provider_rejects_dimension_mismatch_before_embe
     def fail_make_embedder(*args, **kwargs):
         raise AssertionError("embedder should not be constructed before dimension validation")
 
-    monkeypatch.setattr(projection_indexing, "make_embedder", fail_make_embedder)
+    monkeypatch.setattr(semantic_projection, "make_embedder", fail_make_embedder)
 
     with pytest.raises(RuntimeError, match="configured embedding_dimensions is 1024"):
         SummaryProjectionIndexer.from_provider(index_dir)
 
 
 def test_embedding_cache_key_separates_model_dimensions(tmp_path):
-    from pageindex.filesystem.hybrid_projection import (
+    from pageindex.filesystem.semantic_projection import (
         EmbeddingCache,
         embedding_cache_model_key,
     )
@@ -285,7 +285,7 @@ def test_embedding_cache_key_separates_model_dimensions(tmp_path):
 
 
 def test_summary_projection_dimension_mismatch_preserves_existing_index(tmp_path):
-    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+    from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
     index_dir = tmp_path / "projection"
     index = SQLiteVecSemanticIndex(index_dir / "summary_only_vector.sqlite")
@@ -328,7 +328,7 @@ def test_summary_projection_dimension_mismatch_preserves_existing_index(tmp_path
 
 
 def test_hash_embedding_provider_is_not_available():
-    from pageindex.filesystem.hybrid_projection import make_embedder
+    from pageindex.filesystem.semantic_projection import make_embedder
 
     with pytest.raises(ValueError, match="unknown embedding provider: hash"):
         make_embedder("hash", "unused", dimensions=256, timeout=1)

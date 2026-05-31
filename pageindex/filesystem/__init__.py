@@ -13,8 +13,8 @@ from .metadata_generation import (
 from .types import OpenResult, SearchResult
 
 if TYPE_CHECKING:
-    from .hybrid_projection import HybridProjectionSearchBackend
-    from .projection_indexing import SummaryProjectionIndexer
+    from .semantic_projection import SemanticProjectionSearchBackend
+    from .semantic_projection import SummaryProjectionIndexer
     from .semantic_index import (
         RebuildableSemanticIndex,
         SemanticIndexRecord,
@@ -23,17 +23,17 @@ if TYPE_CHECKING:
     )
 
 _LAZY_EXPORTS = {
-    "HybridProjectionSearchBackend": (".hybrid_projection", "HybridProjectionSearchBackend"),
+    "SemanticProjectionSearchBackend": (".semantic_projection", "SemanticProjectionSearchBackend"),
     "RebuildableSemanticIndex": (".semantic_index", "RebuildableSemanticIndex"),
     "SemanticIndexRecord": (".semantic_index", "SemanticIndexRecord"),
     "SemanticSearchResult": (".semantic_index", "SemanticSearchResult"),
     "SQLiteVecSemanticIndex": (".semantic_index", "SQLiteVecSemanticIndex"),
-    "SummaryProjectionIndexer": (".projection_indexing", "SummaryProjectionIndexer"),
+    "SummaryProjectionIndexer": (".semantic_projection", "SummaryProjectionIndexer"),
 }
 
 __all__ = [
     "OpenResult",
-    "HybridProjectionSearchBackend",
+    "SemanticProjectionSearchBackend",
     "MetadataGenerationBackend",
     "MetadataGenerationError",
     "MetadataGenerationInput",
