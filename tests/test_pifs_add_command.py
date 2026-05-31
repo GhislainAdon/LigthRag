@@ -19,13 +19,34 @@ class GeneratedMetadata:
         return {field: values[field] for field in fields if field in values}
 
 
-class RecordingSummaryIndexer:
-    def __init__(self):
-        self.upserted = []
+class StaticEmbedder:
+    def embed(self, texts):
+        return [[1.0, 0.0, 0.0] for _ in texts]
 
-    def upsert_summary(self, record):
-        self.upserted.append(dict(record))
-        return {"status": "ready", "indexed_rows": 1}
+
+def make_summary_indexer(workspace: Path):
+    from pageindex.filesystem.projection_indexing import SummaryProjectionIndexer
+
+    return SummaryProjectionIndexer(
+        workspace / "artifacts" / "projection_indexes",
+        embedder=StaticEmbedder(),
+        embedding_provider="test",
+        embedding_model="static",
+        embedding_dimensions=3,
+    )
+
+
+def make_filesystem(workspace: Path):
+    from pageindex.filesystem import PageIndexFileSystem
+
+    return PageIndexFileSystem(
+        workspace=workspace,
+        metadata_generator=GeneratedMetadata(),
+        summary_projection_indexer=make_summary_indexer(workspace),
+        summary_projection_embedding_provider="test",
+        summary_projection_embedding_model="static",
+        summary_projection_embedding_dimensions=3,
+    )
 
 
 def write_pageindex_client_doc(workspace: Path, doc_id: str, doc: dict) -> None:
@@ -50,16 +71,12 @@ def write_pageindex_client_doc(workspace: Path, doc_id: str, doc: dict) -> None:
 
 
 def test_add_text_folder_target_copies_artifact_indexes_summary_and_is_readable(tmp_path):
-    from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+    from pageindex.filesystem import PIFSCommandExecutor
 
     source = tmp_path / "filing.txt"
     source.write_text("alpha filing text for pifs add", encoding="utf-8")
-    indexer = RecordingSummaryIndexer()
-    filesystem = PageIndexFileSystem(
-        workspace=tmp_path / "workspace",
-        metadata_generator=GeneratedMetadata(),
-        summary_projection_indexer=indexer,
-    )
+    workspace = tmp_path / "workspace"
+    filesystem = make_filesystem(workspace)
 
     info = filesystem.add_file(str(source), "/documents/reports")
 
@@ -77,20 +94,15 @@ def test_add_text_folder_target_copies_artifact_indexes_summary_and_is_readable(
 
     assert rendered["data"]["text"] == "alpha filing text for pifs add"
     assert info["metadata"]["summary"].startswith("Summary for filing.txt")
-    assert indexer.upserted[0]["file_ref"] == info["file_ref"]
-    assert indexer.upserted[0]["metadata"]["summary"] == info["metadata"]["summary"]
+    assert filesystem.summary_projection_indexer.index.info()["document_count"] == 1
 
 
 def test_add_rejects_same_folder_same_basename_without_overwrite(tmp_path):
-    from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+    from pageindex.filesystem import PIFSCommandExecutor
 
     source = tmp_path / "conflict.txt"
     source.write_text("first body", encoding="utf-8")
-    filesystem = PageIndexFileSystem(
-        workspace=tmp_path / "workspace",
-        metadata_generator=GeneratedMetadata(),
-        summary_projection_indexer=RecordingSummaryIndexer(),
-    )
+    filesystem = make_filesystem(tmp_path / "workspace")
 
     filesystem.add_file(source, "/documents")
     source.write_text("second body must not overwrite", encoding="utf-8")
@@ -104,15 +116,9 @@ def test_add_rejects_same_folder_same_basename_without_overwrite(tmp_path):
 
 
 def test_add_rejects_unsupported_type_before_registration(tmp_path):
-    from pageindex.filesystem import PageIndexFileSystem
-
     source = tmp_path / "payload.json"
     source.write_text('{"unsupported": true}', encoding="utf-8")
-    filesystem = PageIndexFileSystem(
-        workspace=tmp_path / "workspace",
-        metadata_generator=GeneratedMetadata(),
-        summary_projection_indexer=RecordingSummaryIndexer(),
-    )
+    filesystem = make_filesystem(tmp_path / "workspace")
 
     with pytest.raises(ValueError, match="Unsupported file type"):
         filesystem.add_file(source, "/documents")
@@ -121,9 +127,49 @@ def test_add_rejects_unsupported_type_before_registration(tmp_path):
     assert not list((tmp_path / "workspace" / "artifacts" / "uploads").glob("**/*"))
 
 
+def test_add_rejects_disabled_summary_projection_before_registration(tmp_path):
+    from pageindex.filesystem import PageIndexFileSystem
+
+    source = tmp_path / "disabled.txt"
+    source.write_text("must not register without summary vector", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    filesystem = PageIndexFileSystem(
+        workspace=workspace,
+        metadata_generator=GeneratedMetadata(),
+        summary_projection_index=False,
+    )
+
+    with pytest.raises(RuntimeError, match="summary projection index"):
+        filesystem.add_file(source, "/documents")
+
+    assert filesystem.browse("/", recursive=True)["files"] == []
+    assert not list((workspace / "artifacts" / "uploads").glob("**/*"))
+    assert not list((workspace / "artifacts" / "text").glob("*.txt"))
+    assert not list((workspace / "artifacts" / "raw").glob("*.json"))
+
+
+def test_add_configures_semantic_retrieval_in_same_filesystem_instance(tmp_path):
+    source = tmp_path / "semantic.txt"
+    source.write_text("alpha semantic recall text", encoding="utf-8")
+    filesystem = make_filesystem(tmp_path / "workspace")
+
+    assert filesystem.semantic_retrieval_channels() == ()
+
+    filesystem.add_file(source, "/documents")
+
+    assert filesystem.semantic_retrieval_channels() == ("summary",)
+    results = filesystem.search_semantic_channel(
+        "summary",
+        "semantic recall",
+        scope={"folder_path": "/documents", "recursive": True},
+        limit=5,
+    )
+    assert [result.source_path for result in results] == ["documents/semantic.txt"]
+
+
 def test_add_markdown_builds_pageindex_tree_from_copied_artifact(tmp_path, monkeypatch):
     from pageindex import PageIndexClient
-    from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+    from pageindex.filesystem import PIFSCommandExecutor
 
     indexed_paths = []
 
@@ -154,11 +200,7 @@ def test_add_markdown_builds_pageindex_tree_from_copied_artifact(tmp_path, monke
     monkeypatch.setattr(PageIndexClient, "index", fake_index)
     source = tmp_path / "notes.md"
     source.write_text("# Notes\n\ncopied markdown body", encoding="utf-8")
-    filesystem = PageIndexFileSystem(
-        workspace=tmp_path / "workspace",
-        metadata_generator=GeneratedMetadata(),
-        summary_projection_indexer=RecordingSummaryIndexer(),
-    )
+    filesystem = make_filesystem(tmp_path / "workspace")
 
     info = filesystem.add_file(source, "/documents")
     executor = PIFSCommandExecutor(filesystem, json_output=True)
@@ -171,15 +213,10 @@ def test_add_markdown_builds_pageindex_tree_from_copied_artifact(tmp_path, monke
 
 
 def test_add_failure_does_not_leave_visible_catalog_or_artifacts(tmp_path, monkeypatch):
-    from pageindex.filesystem import PageIndexFileSystem
-
     source = tmp_path / "atomic.txt"
     source.write_text("atomic body", encoding="utf-8")
-    filesystem = PageIndexFileSystem(
-        workspace=tmp_path / "workspace",
-        metadata_generator=GeneratedMetadata(),
-        summary_projection_indexer=RecordingSummaryIndexer(),
-    )
+    workspace = tmp_path / "workspace"
+    filesystem = make_filesystem(workspace)
 
     def fail_insert(records):
         raise RuntimeError("catalog insert failed")
@@ -190,9 +227,33 @@ def test_add_failure_does_not_leave_visible_catalog_or_artifacts(tmp_path, monke
         filesystem.add_file(source, "/documents")
 
     assert filesystem.browse("/", recursive=True)["files"] == []
-    assert not list((tmp_path / "workspace" / "artifacts" / "uploads").glob("**/*"))
-    assert not list((tmp_path / "workspace" / "artifacts" / "text").glob("*.txt"))
-    assert not list((tmp_path / "workspace" / "artifacts" / "raw").glob("*.json"))
+    assert filesystem.summary_projection_indexer.index.info()["document_count"] == 0
+    assert not list((workspace / "artifacts" / "uploads").glob("**/*"))
+    assert not list((workspace / "artifacts" / "text").glob("*.txt"))
+    assert not list((workspace / "artifacts" / "raw").glob("*.json"))
+
+
+def test_add_failure_after_summary_vector_rolls_back_catalog_and_vector(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "post_vector.txt"
+    source.write_text("post vector rollback body", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    filesystem = make_filesystem(workspace)
+
+    def fail_status_update(*args, **kwargs):
+        raise RuntimeError("metadata status update failed")
+
+    monkeypatch.setattr(filesystem.store, "update_file_metadata_status", fail_status_update)
+
+    with pytest.raises(RuntimeError, match="metadata status update failed"):
+        filesystem.add_file(source, "/documents")
+
+    assert filesystem.browse("/", recursive=True)["files"] == []
+    assert filesystem.summary_projection_indexer.index.info()["document_count"] == 0
+    assert not list((workspace / "artifacts" / "uploads").glob("**/*"))
+    assert not list((workspace / "artifacts" / "text").glob("*.txt"))
+    assert not list((workspace / "artifacts" / "raw").glob("*.json"))
 
 
 def test_cli_add_uses_workspace_and_prints_added_file(monkeypatch, capsys, tmp_path):

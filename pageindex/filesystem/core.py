@@ -203,6 +203,8 @@ class PageIndexFileSystem:
         )
         if self.store.file_basename_exists_in_folder(folder_path, filename):
             raise FileExistsError(f"File already exists at {virtual_path}")
+        if not self.summary_projection_index:
+            raise RuntimeError("pifs add requires the summary projection index")
 
         self._ensure_add_completion_defaults()
         file_ref = make_file_ref(virtual_path.strip("/"))
@@ -210,6 +212,7 @@ class PageIndexFileSystem:
         final_dir = uploads_dir / file_ref
         final_path = final_dir / filename
         final_dir_created = False
+        catalog_inserted = False
         records: list[dict[str, Any]] = []
 
         uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -242,12 +245,22 @@ class PageIndexFileSystem:
                 self._require_add_pageindex_ready(record)
                 self._generate_register_metadata(record)
                 self._require_add_metadata_ready(record)
-                self._complete_summary_projection_index(record)
-                self._require_add_summary_projection_ready(record)
                 self._register_generation_policy_schema(records)
-                self._sync_owned_raw_artifact(record)
                 self.store.insert_files(records)
+                catalog_inserted = True
+                if self._complete_summary_projection_index(record):
+                    self.store.update_file_metadata_status(
+                        record["file_ref"],
+                        metadata=record["metadata"],
+                        metadata_status=record["metadata_status"],
+                    )
+                self._require_add_summary_projection_ready(record)
+                self._sync_owned_raw_artifact(record)
+                self._ensure_add_semantic_retrieval_ready()
             except Exception:
+                if catalog_inserted:
+                    self._cleanup_add_catalog_record(file_ref)
+                self._cleanup_add_summary_projection(records)
                 self._cleanup_failed_register_artifacts(records)
                 if final_dir_created:
                     shutil.rmtree(final_dir, ignore_errors=True)
@@ -354,6 +367,63 @@ class PageIndexFileSystem:
                 embedding_dimensions=self.summary_projection_embedding_dimensions,
                 embedding_timeout=self.summary_projection_embedding_timeout,
             )
+
+    def _ensure_add_semantic_retrieval_ready(self) -> None:
+        indexer = self.summary_projection_indexer
+        if indexer is None:
+            raise RuntimeError("pifs add requires a summary projection indexer")
+        from .hybrid_projection import HybridProjectionSearchBackend
+
+        index_dir = Path(getattr(indexer, "index_dir", self.summary_projection_index_dir))
+        embedder = getattr(indexer, "embedder", None)
+        if embedder is None:
+            self.configure_hybrid_projection_retrieval(
+                index_dir,
+                embedding_provider=str(
+                    getattr(
+                        indexer,
+                        "embedding_provider",
+                        self.summary_projection_embedding_provider,
+                    )
+                ),
+                embedding_model=str(
+                    getattr(indexer, "embedding_model", self.summary_projection_embedding_model)
+                ),
+                embedding_dimensions=int(
+                    getattr(
+                        indexer,
+                        "embedding_dimensions",
+                        self.summary_projection_embedding_dimensions,
+                    )
+                ),
+                embedding_timeout=self.summary_projection_embedding_timeout,
+            )
+        else:
+            embedding_cache = getattr(indexer, "embedding_cache", None)
+            self.semantic_retrieval_backend = HybridProjectionSearchBackend(
+                index_dir,
+                embedder=embedder,
+                embedding_provider=str(
+                    getattr(
+                        indexer,
+                        "embedding_provider",
+                        self.summary_projection_embedding_provider,
+                    )
+                ),
+                embedding_model=str(
+                    getattr(indexer, "embedding_model", self.summary_projection_embedding_model)
+                ),
+                embedding_dimensions=int(
+                    getattr(
+                        indexer,
+                        "embedding_dimensions",
+                        self.summary_projection_embedding_dimensions,
+                    )
+                ),
+                embedding_cache_path=getattr(embedding_cache, "db_path", None),
+            )
+        if "summary" not in self.semantic_retrieval_channels():
+            raise RuntimeError("pifs add failed to configure summary semantic retrieval")
 
     def configure_existing_projection_retrieval(self) -> bool:
         """Attach semantic retrieval to already-built projection indexes.
@@ -1614,6 +1684,32 @@ class PageIndexFileSystem:
                 self._unlink_artifact(record["text_artifact_path"])
             if record.get("_pifs_owned_raw_artifact") and record.get("raw_artifact_path"):
                 self._unlink_artifact(record["raw_artifact_path"])
+
+    def _cleanup_add_catalog_record(self, file_ref: str) -> None:
+        try:
+            self.store.delete_file(file_ref)
+        except Exception:
+            return
+
+    def _cleanup_add_summary_projection(self, records: list[dict[str, Any]]) -> None:
+        indexer = self.summary_projection_indexer
+        if indexer is None:
+            return
+        delete_summary = getattr(indexer, "delete_summary", None)
+        for record in records:
+            file_ref = str(record.get("file_ref") or "")
+            if not file_ref:
+                continue
+            try:
+                if callable(delete_summary):
+                    delete_summary(file_ref)
+                    continue
+                index = getattr(indexer, "index", None)
+                delete_file_refs = getattr(index, "delete_file_refs", None)
+                if callable(delete_file_refs):
+                    delete_file_refs([file_ref])
+            except Exception:
+                continue
 
     @staticmethod
     def _metadata_policy_is_batch(policy: dict[str, Any]) -> bool:

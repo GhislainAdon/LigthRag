@@ -104,6 +104,9 @@ class SummaryProjectionIndexer:
             "embedding_dimensions": self.embedding_dimensions,
         }
 
+    def delete_summary(self, file_ref: str) -> int:
+        return self.index.delete_file_refs([file_ref])
+
     def _ensure_index(self) -> None:
         if not self.index.db_path.exists():
             self.index.reset(

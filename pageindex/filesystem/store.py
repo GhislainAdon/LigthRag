@@ -1056,6 +1056,13 @@ class SQLiteFileSystemStore:
                 (metadata_text_value, file_ref),
             )
 
+    def delete_file(self, target: str) -> None:
+        with self.connect() as conn:
+            file_ref = self._resolve_file_ref(conn, target)
+            conn.execute("DELETE FROM file_fts WHERE file_ref = ?", (file_ref,))
+            conn.execute("DELETE FROM metadata_values WHERE file_ref = ?", (file_ref,))
+            conn.execute("DELETE FROM files WHERE file_ref = ?", (file_ref,))
+
     def resolve_file_ref(self, target: str) -> str:
         with self.connect() as conn:
             return self._resolve_file_ref(conn, target)
