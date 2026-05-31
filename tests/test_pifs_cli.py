@@ -25,6 +25,24 @@ def test_cli_workspace_configures_existing_projection_retrieval(monkeypatch, tmp
     assert filesystem.projection_retrieval_configured is True
 
 
+def test_cli_workspace_surfaces_projection_dimension_mismatch(monkeypatch, tmp_path):
+    import pytest
+
+    from pageindex.filesystem import cli
+
+    class MismatchedFileSystem:
+        def __init__(self, workspace):
+            self.workspace = Path(workspace)
+
+        def configure_existing_projection_retrieval(self):
+            raise RuntimeError("summary projection index dimension mismatch: rebuild")
+
+    monkeypatch.setattr(cli, "PageIndexFileSystem", MismatchedFileSystem)
+
+    with pytest.raises(RuntimeError, match="dimension mismatch"):
+        cli._filesystem_from_workspace(str(tmp_path / "workspace"))
+
+
 def test_cli_passthrough_invokes_pifs_command_executor(monkeypatch, capsys, tmp_path):
     from pageindex.filesystem import cli
 
