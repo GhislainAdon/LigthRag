@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .embedding_defaults import DEFAULT_EMBEDDING_DIMENSIONS
 from .semantic_index import SQLiteVecSemanticIndex, SemanticIndexError, SemanticSearchResult
 
 
@@ -28,7 +29,6 @@ HYBRID_ENTITY_RELATION_WEIGHTS = {
     "relation": 0.30,
     "constraint": 0.20,
 }
-DEFAULT_EMBEDDING_DIMENSIONS = 1024
 
 
 @dataclass(frozen=True)

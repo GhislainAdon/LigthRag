@@ -14,6 +14,7 @@ from .metadata_generation import (
     MetadataGenerationResult,
     MetadataGenerator,
 )
+from .embedding_defaults import DEFAULT_EMBEDDING_DIMENSIONS
 from .semantic_folder_policy import (
     SEMANTIC_FOLDER_BASE_FIELDS,
     SEMANTIC_FOLDER_ROOT,
@@ -22,7 +23,6 @@ from .semantic_folder_policy import (
     is_semantic_folder_forbidden_field,
     semantic_folder_allowed_extension_fields,
 )
-from .hybrid_projection import DEFAULT_EMBEDDING_DIMENSIONS
 from .store import (
     SQLiteFileSystemStore,
     fingerprint,
