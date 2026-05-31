@@ -249,33 +249,29 @@ class PageIndexFileSystem:
         """Attach semantic retrieval to already-built projection indexes.
 
         Register-time generation owns building the index files. Opening an
-        existing workspace should still expose semantic browse, without forcing
-        a re-register step.
+        existing workspace should still expose semantic retrieval when the
+        configured embedding dimensions match the existing index.
         """
         if self.semantic_retrieval_backend is not None:
             return bool(self.semantic_retrieval_channels())
         index_config = self._existing_projection_index_config()
         if index_config is None:
             return False
-        metadata = dict(index_config.get("metadata") or {})
-        embedding_provider = str(
-            metadata.get("embedding_provider")
-            or self.summary_projection_embedding_provider
-        )
-        embedding_model = str(
-            metadata.get("embedding_model")
-            or self.summary_projection_embedding_model
-        )
-        embedding_dimensions = int(
-            metadata.get("embedding_dimensions")
-            or index_config.get("dimension")
-            or self.summary_projection_embedding_dimensions
-        )
+        existing_dimension = int(index_config.get("dimension") or 0)
+        if existing_dimension != self.summary_projection_embedding_dimensions:
+            raise RuntimeError(
+                "summary projection index dimension mismatch: "
+                f"{index_config.get('db_path') or self.summary_projection_index_dir} "
+                f"was built with dimension {existing_dimension}, but configured "
+                "summary_projection_embedding_dimensions is "
+                f"{self.summary_projection_embedding_dimensions}. Rebuild the "
+                "projection index or use a matching embedding configuration."
+            )
         self.configure_hybrid_projection_retrieval(
             self.summary_projection_index_dir,
-            embedding_provider=embedding_provider,
-            embedding_model=embedding_model,
-            embedding_dimensions=embedding_dimensions,
+            embedding_provider=self.summary_projection_embedding_provider,
+            embedding_model=self.summary_projection_embedding_model,
+            embedding_dimensions=self.summary_projection_embedding_dimensions,
             embedding_timeout=self.summary_projection_embedding_timeout,
         )
         return bool(self.semantic_retrieval_channels())
