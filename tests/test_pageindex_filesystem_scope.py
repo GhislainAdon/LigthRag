@@ -182,6 +182,23 @@ def test_browse_is_agent_visible_semantic_command(tmp_path):
     assert executor.command_capabilities()["retrieval"]["semantic"]["commands"] == ["browse"]
 
 
+def test_shell_text_window_commands_are_not_agent_visible(tmp_path):
+    from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+    from pageindex.filesystem.commands import PIFSCommandError
+
+    filesystem = PageIndexFileSystem(workspace=tmp_path / "workspace")
+    executor = PIFSCommandExecutor(filesystem)
+
+    assert not {"head", "tail", "sed"} & executor.allowed_commands()
+    assert not {"head", "tail", "sed"} & set(
+        executor.command_capabilities()["allowed_commands"]
+    )
+
+    for command in ("head /documents/a.txt", "tail /documents/a.txt", "sed -n 1,1p /documents/a.txt"):
+        with pytest.raises(PIFSCommandError, match="Unsupported command"):
+            executor.execute(command)
+
+
 def test_browse_requires_positional_query_and_rejects_removed_options(tmp_path):
     from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
     from pageindex.filesystem.commands import PIFSCommandError

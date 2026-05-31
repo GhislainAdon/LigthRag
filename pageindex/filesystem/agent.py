@@ -56,7 +56,7 @@ format. If the caller needs stricter behavior, pass an explicit system_prompt.
 BASH_TOOL_DESCRIPTION = """
 Run a command in the PageIndex FileSystem virtual shell. This is not a real
 operating-system shell. By default the tool is read-only: use ls, tree, find,
-grep, cat, stat, head, tail, sed, and browse when listed in the workspace
+grep, cat, stat, and browse when listed in the workspace
 context. grep -R is lexical evidence search; grep does not support regex
 alternation such as "a|b"; run multiple grep commands or use browse for
 relevance-ranked file discovery instead. Start broad workspace questions with

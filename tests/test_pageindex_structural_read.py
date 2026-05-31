@@ -580,17 +580,6 @@ def test_cat_all_is_limited_to_text_files():
             executor.execute("cat dsid_json_file --all")
         opened_json = filesystem.open("dsid_json_file")
         assert opened_json.text == '{"body":"json"}'
-        for command in (
-            "head dsid_pdf_file",
-            "tail dsid_pdf_file",
-            "sed -n 1,1p dsid_pdf_file",
-            "head dsid_md_file",
-            "tail dsid_md_file",
-            "sed -n 1,1p dsid_md_file",
-        ):
-            with pytest.raises(PIFSCommandError, match="only supported for txt/text files"):
-                executor.execute(command)
-
 
 def test_pageindex_structure_commands_are_limited_to_pdf_and_markdown():
     from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem

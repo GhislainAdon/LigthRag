@@ -108,9 +108,6 @@ def test_shell_limits_reject_context_expanding_counts(tmp_path):
         ("grep --limit 21 Root /documents", 20),
         ("ls /documents --limit 101", 100),
         ("tree /documents --limit 201", 200),
-        ("head -n 101 /documents/Root\\ document", 100),
-        ("tail -n 101 /documents/Root\\ document", 100),
-        ("sed -n 1,101p /documents/Root\\ document", 100),
     ):
         with pytest.raises(PIFSCommandError, match=f"at most {limit}"):
             executor.execute(command)
