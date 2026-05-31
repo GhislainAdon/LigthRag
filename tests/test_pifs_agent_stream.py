@@ -1,7 +1,10 @@
+import ast
 import io
 import os
+import tempfile
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -15,6 +18,7 @@ from pageindex.filesystem.agent import (
     PIFSAgentSession,
     PIFSAgentStreamObserver,
     build_agent_model_settings,
+    build_pifs_agent_instructions,
     normalize_agent_stream_mode,
     normalize_reasoning_effort,
     normalize_reasoning_summary,
@@ -23,6 +27,22 @@ from pageindex.filesystem.agent import (
     should_disable_pifs_agent_tracing,
     should_use_openai_compatible_chat_model,
 )
+from pageindex.filesystem import PageIndexFileSystem
+
+
+def load_demo_agent_prompt() -> str:
+    demo_path = Path(__file__).resolve().parents[1] / "examples" / "pifs_demo.py"
+    module = ast.parse(demo_path.read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            names = [
+                target.id
+                for target in node.targets
+                if isinstance(target, ast.Name)
+            ]
+            if "PIFS_DEMO_AGENT_PROMPT" in names and isinstance(node.value, ast.Constant):
+                return str(node.value.value)
+    raise AssertionError("PIFS_DEMO_AGENT_PROMPT not found")
 
 
 class StructuredAnswer(BaseModel):
@@ -215,22 +235,65 @@ class PIFSAgentStreamTest(unittest.TestCase):
         self.assertIn("Do not run stat merely to understand what a document says", AGENT_TOOL_POLICY)
         self.assertIn("Do not use stat as a general content/topic discovery step", BASH_TOOL_DESCRIPTION)
 
-    def test_prompt_routes_semantic_search_to_browse(self):
+    def test_prompt_routes_topic_retrieval_through_browse_after_folder_exploration(self):
+        self.assertIn("Start with ls or tree", AGENT_TOOL_POLICY)
+        self.assertIn('browse <folder> "<query>"', AGENT_TOOL_POLICY)
+        self.assertIn('browse /documents "Federal Reserve"', BASH_TOOL_DESCRIPTION)
+        self.assertIn("If the relevant folder is uncertain", AGENT_TOOL_POLICY)
+        self.assertIn('browse -R <folder> "<query>"', AGENT_TOOL_POLICY)
+        self.assertIn("browse returns file candidates only", AGENT_TOOL_POLICY)
+        self.assertIn("verify the relevant facts with cat or grep", AGENT_TOOL_POLICY)
+        self.assertIn("cat <target> --structure", AGENT_TOOL_POLICY)
+        self.assertIn("cat <target> --node <node_id>", AGENT_TOOL_POLICY)
+        self.assertIn("cat <target> --page", AGENT_TOOL_POLICY)
+        self.assertIn("Do not use browse as folder semantic recall", AGENT_TOOL_POLICY)
+
+    def test_default_agent_prompts_do_not_suggest_legacy_semantic_commands(self):
+        prompt_surface = "\n".join(
+            [AGENT_SYSTEM_PROMPT, BASH_TOOL_DESCRIPTION, AGENT_TOOL_POLICY]
+        )
+
         for old_command in (
             "search-summary",
             "search-entity",
             "search-relation",
             "semantic-grep",
+            "find --name",
+            "find --relation",
         ):
-            self.assertNotIn(old_command, BASH_TOOL_DESCRIPTION)
-            self.assertNotIn(old_command, AGENT_TOOL_POLICY)
-        self.assertIn("Use browse when the user", BASH_TOOL_DESCRIPTION)
-        self.assertIn('use browse <folder> "<query>"', AGENT_TOOL_POLICY)
-        self.assertIn('browse /documents "Federal Reserve"', BASH_TOOL_DESCRIPTION)
-        self.assertIn("browse -R <folder>", AGENT_TOOL_POLICY)
-        self.assertIn("do not translate that request into find --where", AGENT_TOOL_POLICY)
-        self.assertIn("verify the relevant facts with cat", AGENT_TOOL_POLICY)
-        self.assertIn("verify the relevant claim with cat", BASH_TOOL_DESCRIPTION)
+            self.assertNotIn(old_command, prompt_surface)
+
+    def test_demo_prompt_uses_browse_strategy_and_not_legacy_semantic_search(self):
+        demo_prompt = load_demo_agent_prompt()
+
+        self.assertIn("Start with ls or tree", demo_prompt)
+        self.assertIn('browse /documents "Federal Reserve supervision regulation"', demo_prompt)
+        self.assertIn('browse -R /documents "Federal Reserve supervision regulation"', demo_prompt)
+        self.assertIn("verify", demo_prompt)
+        self.assertIn("cat <path> --structure", demo_prompt)
+        self.assertNotIn("search-summary", demo_prompt)
+
+    def test_built_agent_instructions_filter_legacy_semantic_command_surface(self):
+        class LegacySemanticBackend:
+            semantic_tool_channels = ("summary", "entity", "relation")
+
+        with tempfile.TemporaryDirectory() as workspace:
+            filesystem = PageIndexFileSystem(
+                workspace,
+                semantic_retrieval_backend=LegacySemanticBackend(),
+            )
+            instructions = build_pifs_agent_instructions(filesystem)
+
+        self.assertIn('browse [-R] <folder> "<query>"', instructions)
+        for old_command in (
+            "search-summary",
+            "search-entity",
+            "search-relation",
+            "semantic-grep",
+            "find --name",
+            "find --relation",
+        ):
+            self.assertNotIn(old_command, instructions)
 
     def test_prompt_rejects_find_grep_as_exhaustive_search(self):
         self.assertIn("Do not use find | grep as an exhaustive search", AGENT_TOOL_POLICY)
