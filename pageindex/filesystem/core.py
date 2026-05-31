@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
+import shutil
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import unquote, urlparse
 
@@ -91,6 +93,13 @@ PAGEINDEX_DOCUMENT_CONTENT_TYPES = {
 }
 TEXT_ARTIFACT_SUFFIXES = {".txt", ".text"}
 TEXT_ARTIFACT_CONTENT_TYPES = {"text/plain"}
+ADD_FILE_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".txt": "text/plain",
+    ".text": "text/plain",
+}
 
 
 class PageIndexFileSystem:
@@ -171,6 +180,100 @@ class PageIndexFileSystem:
             self._ensure_register_completion_defaults()
         return self.register_file(**kwargs)
 
+    def add_file(
+        self,
+        physical_path: Union[str, Path],
+        virtual_target: Union[str, Path],
+    ) -> dict[str, Any]:
+        source = Path(physical_path).expanduser()
+        if not source.is_file():
+            raise FileNotFoundError(f"Source file not found: {source}")
+        suffix = source.suffix.lower()
+        content_type = ADD_FILE_CONTENT_TYPES.get(suffix)
+        if content_type is None:
+            supported = ", ".join(sorted(ADD_FILE_CONTENT_TYPES))
+            raise ValueError(
+                f"Unsupported file type: {suffix or '<none>'}; supported: {supported}"
+            )
+
+        folder_path, filename, virtual_path = self._resolve_add_target(
+            virtual_target,
+            physical_basename=source.name,
+            physical_suffix=suffix,
+        )
+        if self.store.file_basename_exists_in_folder(folder_path, filename):
+            raise FileExistsError(f"File already exists at {virtual_path}")
+        if not self.summary_projection_index:
+            raise RuntimeError("pifs add requires the summary projection index")
+
+        self._ensure_add_completion_defaults()
+        add_created_folder_paths = self._add_created_folder_paths(folder_path)
+        file_ref = make_file_ref(virtual_path.strip("/"))
+        uploads_dir = self.workspace / "artifacts" / "uploads"
+        final_dir = uploads_dir / file_ref
+        final_path = final_dir / filename
+        final_dir_created = False
+        catalog_inserted = False
+        records: list[dict[str, Any]] = []
+        preexisting_pageindex_doc_ids = self._pageindex_cache_doc_ids()
+
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=f".add-{file_ref}-", dir=uploads_dir) as tmp:
+            temp_path = Path(tmp) / filename
+            try:
+                shutil.copy2(source, temp_path)
+                if final_dir.exists():
+                    raise FileExistsError(
+                        f"Workspace artifact already exists for {virtual_path}: {final_dir}"
+                    )
+                final_dir.mkdir(parents=True)
+                final_dir_created = True
+                os.replace(temp_path, final_path)
+
+                record = self._prepare_file_record(
+                    {
+                        "storage_uri": final_path.as_uri(),
+                        "source_path": virtual_path.strip("/"),
+                        "folder_path": folder_path,
+                        "metadata": {},
+                        "external_id": None,
+                        "title": filename,
+                        "content": self._add_file_content(final_path, content_type),
+                        "content_type": content_type,
+                        "metadata_policy": self._add_metadata_policy(),
+                    }
+                )
+                records = [record]
+                self._require_add_pageindex_ready(record)
+                self._generate_register_metadata(record)
+                self._require_add_metadata_ready(record)
+                self._register_generation_policy_schema(records)
+                self.store.insert_files(records)
+                catalog_inserted = True
+                if self._complete_summary_projection_index(record):
+                    self.store.update_file_metadata_status(
+                        record["file_ref"],
+                        metadata=record["metadata"],
+                        metadata_status=record["metadata_status"],
+                    )
+                self._require_add_summary_projection_ready(record)
+                self._sync_owned_raw_artifact(record)
+                self._ensure_add_semantic_retrieval_ready()
+            except Exception:
+                if catalog_inserted:
+                    self._cleanup_add_catalog_record(file_ref)
+                self._cleanup_add_summary_projection(records)
+                self._cleanup_failed_register_artifacts(records)
+                self._cleanup_add_pageindex_cache(records, preexisting_pageindex_doc_ids)
+                self._cleanup_add_created_folders(add_created_folder_paths)
+                if final_dir_created:
+                    shutil.rmtree(final_dir, ignore_errors=True)
+                raise
+
+        info = self.store.file_info(file_ref)
+        info["path"] = virtual_path
+        return info
+
     def register_files(self, files: list[dict[str, Any]]) -> list[str]:
         records = [self._prepare_file_record(file) for file in files]
         try:
@@ -249,6 +352,97 @@ class PageIndexFileSystem:
                 embedding_dimensions=self.summary_projection_embedding_dimensions,
                 embedding_timeout=self.summary_projection_embedding_timeout,
             )
+
+    def _ensure_add_completion_defaults(self) -> None:
+        if self.metadata_generator is None:
+            self.metadata_generator = MetadataGenerator(
+                provider=self.metadata_provider,
+                model=self.metadata_model,
+                base_url=self.metadata_base_url,
+                max_text_chars=self.metadata_max_text_chars,
+            )
+        if self.summary_projection_index and self.summary_projection_indexer is None:
+            from .projection_indexing import SummaryProjectionIndexer
+
+            self.summary_projection_indexer = SummaryProjectionIndexer.from_provider(
+                self.summary_projection_index_dir,
+                embedding_provider=self.summary_projection_embedding_provider,
+                embedding_model=self.summary_projection_embedding_model,
+                embedding_dimensions=self.summary_projection_embedding_dimensions,
+                embedding_timeout=self.summary_projection_embedding_timeout,
+            )
+
+    def _ensure_add_semantic_retrieval_ready(self) -> None:
+        indexer = self.summary_projection_indexer
+        if indexer is None:
+            raise RuntimeError("pifs add requires a summary projection indexer")
+        from .hybrid_projection import HybridProjectionSearchBackend
+
+        index_dir = Path(getattr(indexer, "index_dir", self.summary_projection_index_dir))
+        embedder = getattr(indexer, "embedder", None)
+        if embedder is None:
+            self.configure_hybrid_projection_retrieval(
+                index_dir,
+                embedding_provider=str(
+                    getattr(
+                        indexer,
+                        "embedding_provider",
+                        self.summary_projection_embedding_provider,
+                    )
+                ),
+                embedding_model=str(
+                    getattr(indexer, "embedding_model", self.summary_projection_embedding_model)
+                ),
+                embedding_dimensions=int(
+                    getattr(
+                        indexer,
+                        "embedding_dimensions",
+                        self.summary_projection_embedding_dimensions,
+                    )
+                ),
+                embedding_timeout=self.summary_projection_embedding_timeout,
+            )
+        else:
+            embedding_cache = getattr(indexer, "embedding_cache", None)
+            self.semantic_retrieval_backend = HybridProjectionSearchBackend(
+                index_dir,
+                embedder=embedder,
+                embedding_provider=str(
+                    getattr(
+                        indexer,
+                        "embedding_provider",
+                        self.summary_projection_embedding_provider,
+                    )
+                ),
+                embedding_model=str(
+                    getattr(indexer, "embedding_model", self.summary_projection_embedding_model)
+                ),
+                embedding_dimensions=int(
+                    getattr(
+                        indexer,
+                        "embedding_dimensions",
+                        self.summary_projection_embedding_dimensions,
+                    )
+                ),
+                embedding_cache_path=getattr(embedding_cache, "db_path", None),
+            )
+        if "summary" not in self.semantic_retrieval_channels():
+            raise RuntimeError("pifs add failed to configure summary semantic retrieval")
+
+    def _add_created_folder_paths(self, folder_path: str) -> list[str]:
+        paths = self._folder_ancestor_paths(folder_path)
+        return [path for path in paths if not self.store.folder_exists(path)]
+
+    @staticmethod
+    def _folder_ancestor_paths(folder_path: str) -> list[str]:
+        normalized = normalize_path(folder_path)
+        if normalized == "/":
+            return []
+        segments = [segment for segment in normalized.strip("/").split("/") if segment]
+        paths: list[str] = []
+        for index in range(1, len(segments) + 1):
+            paths.append("/" + "/".join(segments[:index]))
+        return paths
 
     def configure_existing_projection_retrieval(self) -> bool:
         """Attach semantic retrieval to already-built projection indexes.
@@ -1075,6 +1269,117 @@ class PageIndexFileSystem:
     def _create_folder(self, path: str) -> str:
         return self.create_folder(path)
 
+    @classmethod
+    def _resolve_add_target(
+        cls,
+        virtual_target: Union[str, Path],
+        *,
+        physical_basename: str,
+        physical_suffix: str,
+    ) -> tuple[str, str, str]:
+        raw_target = str(virtual_target).strip()
+        if not raw_target:
+            raise ValueError("pifs add target is required")
+        normalized = normalize_path(raw_target)
+        posix_target = PurePosixPath(normalized)
+        raw_looks_like_folder = raw_target.replace("\\", "/").endswith("/")
+        target_suffix = posix_target.suffix.lower()
+        if raw_looks_like_folder or target_suffix not in ADD_FILE_CONTENT_TYPES:
+            folder_path = normalized
+            filename = physical_basename
+        else:
+            if target_suffix != physical_suffix:
+                raise ValueError(
+                    "pifs add target file extension must match the physical file extension"
+                )
+            folder_path = normalize_path(str(posix_target.parent))
+            filename = posix_target.name
+        cls._validate_add_filename(filename)
+        virtual_path = cls._join_virtual_file_path(folder_path, filename)
+        return folder_path, filename, virtual_path
+
+    @staticmethod
+    def _validate_add_filename(filename: str) -> None:
+        if not filename or filename in {".", ".."}:
+            raise ValueError("pifs add target filename is required")
+        if "/" in filename or "\\" in filename:
+            raise ValueError("pifs add target filename must be a basename")
+
+    @staticmethod
+    def _join_virtual_file_path(folder_path: str, filename: str) -> str:
+        folder_path = normalize_path(folder_path)
+        if folder_path == "/":
+            return f"/{filename}"
+        return f"{folder_path}/{filename}"
+
+    @staticmethod
+    def _add_metadata_policy() -> dict[str, Any]:
+        return {
+            "fields": {
+                "summary": True,
+                "doc_type": False,
+                "domain": False,
+                "topic": False,
+                "entity": False,
+                "relation": False,
+            },
+            "projection_indexes": {"summary": True},
+            "batch": False,
+        }
+
+    def _add_file_content(self, path: Path, content_type: str) -> str:
+        if self._source_format(str(path), content_type) in {"markdown", "text"}:
+            return path.read_text(encoding="utf-8")
+        return ""
+
+    def _require_add_pageindex_ready(self, record: dict[str, Any]) -> None:
+        if self._source_format(record["source_path"], record["content_type"]) not in {
+            "pdf",
+            "markdown",
+        }:
+            return
+        if record.get("pageindex_tree_status") == "built" and record.get("pageindex_doc_id"):
+            return
+        message = self._pageindex_tree_failure_message(record.get("metadata_status")) or (
+            "PageIndex tree was not built"
+        )
+        raise RuntimeError(f"pifs add failed to build PageIndex tree: {message}")
+
+    @staticmethod
+    def _require_add_metadata_ready(record: dict[str, Any]) -> None:
+        metadata = record.get("metadata") or {}
+        summary = str(metadata.get("summary") or "").strip()
+        if not summary:
+            raise MetadataGenerationError(
+                "pifs add requires synchronous generated summary metadata"
+            )
+        status = record.get("metadata_status") or {}
+        summary_status = (status.get("fields") or {}).get("summary") or {}
+        if summary_status.get("status") != "generated":
+            raise MetadataGenerationError(
+                "pifs add requires generated summary metadata before registration"
+            )
+        if status.get("status") == "failed":
+            raise MetadataGenerationError(
+                "pifs add metadata generation failed before registration"
+            )
+
+    def _require_add_summary_projection_ready(self, record: dict[str, Any]) -> None:
+        if not self.summary_projection_index:
+            return
+        summary_projection = (
+            (record.get("metadata_status") or {})
+            .get("projection_indexes", {})
+            .get("summary")
+        )
+        if not summary_projection or not summary_projection.get("requested"):
+            raise RuntimeError("pifs add requires a requested summary projection index")
+        if summary_projection.get("status") != "ready":
+            detail = summary_projection.get("error") or summary_projection.get("status")
+            raise RuntimeError(
+                f"pifs add failed to build summary projection index: {detail}"
+            )
+
     def _prepare_file_record(self, file: dict[str, Any]) -> dict[str, Any]:
         storage_uri = file["storage_uri"]
         raw_source_path = str(file["source_path"])
@@ -1398,6 +1703,98 @@ class PageIndexFileSystem:
                 self._unlink_artifact(record["text_artifact_path"])
             if record.get("_pifs_owned_raw_artifact") and record.get("raw_artifact_path"):
                 self._unlink_artifact(record["raw_artifact_path"])
+
+    def _cleanup_add_catalog_record(self, file_ref: str) -> None:
+        try:
+            self.store.delete_file(file_ref)
+        except Exception:
+            return
+
+    def _cleanup_add_summary_projection(self, records: list[dict[str, Any]]) -> None:
+        indexer = self.summary_projection_indexer
+        if indexer is None:
+            return
+        delete_summary = getattr(indexer, "delete_summary", None)
+        for record in records:
+            file_ref = str(record.get("file_ref") or "")
+            if not file_ref:
+                continue
+            try:
+                if callable(delete_summary):
+                    delete_summary(file_ref)
+                    continue
+                index = getattr(indexer, "index", None)
+                delete_file_refs = getattr(index, "delete_file_refs", None)
+                if callable(delete_file_refs):
+                    delete_file_refs([file_ref])
+            except Exception:
+                continue
+
+    def _cleanup_add_created_folders(self, folder_paths: list[str]) -> None:
+        for folder_path in reversed(folder_paths):
+            try:
+                self.store.delete_empty_folder(folder_path)
+            except Exception:
+                continue
+
+    def _pageindex_cache_doc_ids(self) -> set[str]:
+        workspace = self.pageindex_client_workspace
+        doc_ids = {path.stem for path in workspace.glob("*.json") if path.name != "_meta.json"}
+        meta_path = workspace / "_meta.json"
+        if not meta_path.exists():
+            return doc_ids
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return doc_ids
+        if isinstance(payload, dict):
+            doc_ids.update(str(doc_id) for doc_id in payload)
+        return doc_ids
+
+    def _cleanup_add_pageindex_cache(
+        self,
+        records: list[dict[str, Any]],
+        preexisting_doc_ids: set[str],
+    ) -> None:
+        doc_ids = sorted(self._pageindex_cache_doc_ids() - preexisting_doc_ids)
+        for record in records:
+            doc_id = str(record.get("pageindex_doc_id") or "").strip()
+            if doc_id and doc_id not in preexisting_doc_ids:
+                doc_ids.append(doc_id)
+        doc_ids = sorted(set(doc_ids))
+        if not doc_ids:
+            return
+        workspace = self.pageindex_client_workspace
+        for doc_id in doc_ids:
+            try:
+                (workspace / f"{doc_id}.json").unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                continue
+        meta_path = workspace / "_meta.json"
+        if not meta_path.exists():
+            return
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, dict):
+            return
+        changed = False
+        for doc_id in doc_ids:
+            if doc_id in payload:
+                payload.pop(doc_id, None)
+                changed = True
+        if not changed:
+            return
+        try:
+            meta_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            return
 
     @staticmethod
     def _metadata_policy_is_batch(policy: dict[str, Any]) -> bool:

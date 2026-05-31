@@ -1056,6 +1056,55 @@ class SQLiteFileSystemStore:
                 (metadata_text_value, file_ref),
             )
 
+    def delete_file(self, target: str) -> None:
+        with self.connect() as conn:
+            file_ref = self._resolve_file_ref(conn, target)
+            conn.execute("DELETE FROM file_fts WHERE file_ref = ?", (file_ref,))
+            conn.execute("DELETE FROM metadata_values WHERE file_ref = ?", (file_ref,))
+            conn.execute("DELETE FROM files WHERE file_ref = ?", (file_ref,))
+
+    def folder_exists(self, path: str) -> bool:
+        path = normalize_path(path)
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM folders WHERE path = ?",
+                (path,),
+            ).fetchone()
+        return row is not None
+
+    def delete_empty_folder(self, path: str) -> bool:
+        path = normalize_path(path)
+        if path == "/":
+            return False
+        with self.connect() as conn:
+            folder = self._folder_by_path(conn, path)
+            if folder is None:
+                return False
+            has_files = conn.execute(
+                """
+                SELECT 1
+                FROM file_folders
+                WHERE folder_id = ?
+                LIMIT 1
+                """,
+                (folder["folder_id"],),
+            ).fetchone()
+            if has_files is not None:
+                return False
+            has_children = conn.execute(
+                """
+                SELECT 1
+                FROM folders
+                WHERE parent_id = ?
+                LIMIT 1
+                """,
+                (folder["folder_id"],),
+            ).fetchone()
+            if has_children is not None:
+                return False
+            conn.execute("DELETE FROM folders WHERE folder_id = ?", (folder["folder_id"],))
+            return True
+
     def resolve_file_ref(self, target: str) -> str:
         with self.connect() as conn:
             return self._resolve_file_ref(conn, target)
@@ -1411,6 +1460,36 @@ class SQLiteFileSystemStore:
                     (path,),
                 ).fetchone()
         return int(row["count"] or 0)
+
+    def file_basename_exists_in_folder(self, path: str, basename: str) -> bool:
+        path = normalize_path(path)
+        basename = str(basename).strip()
+        if not basename:
+            return False
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM files f
+                JOIN file_folders ff ON ff.file_ref = f.file_ref
+                JOIN folders fo ON fo.folder_id = ff.folder_id
+                WHERE f.deleted_at IS NULL
+                  AND fo.path = ?
+                  AND (
+                      f.title = ?
+                      OR f.source_path = ?
+                      OR f.source_path LIKE ? ESCAPE '\\'
+                  )
+                LIMIT 1
+                """,
+                (
+                    path,
+                    basename,
+                    basename,
+                    "%/" + self._like_escape(basename),
+                ),
+            ).fetchone()
+        return row is not None
 
     def folder_subtree_thresholds(
         self,

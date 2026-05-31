@@ -146,6 +146,35 @@ class SQLiteVecSemanticIndex:
             conn.commit()
             return inserted
 
+    def delete_file_refs(self, file_refs: list[str]) -> int:
+        refs = [str(file_ref) for file_ref in file_refs if str(file_ref)]
+        if not refs:
+            return 0
+        placeholders = ", ".join("?" for _ in refs)
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT rowid
+                FROM semantic_index_docs
+                WHERE file_ref IN ({placeholders})
+                """,
+                refs,
+            ).fetchall()
+            rowids = [int(row["rowid"]) for row in rows]
+            if not rowids:
+                return 0
+            rowid_placeholders = ", ".join("?" for _ in rowids)
+            conn.execute(
+                f"DELETE FROM semantic_index_vec WHERE rowid IN ({rowid_placeholders})",
+                rowids,
+            )
+            conn.execute(
+                f"DELETE FROM semantic_index_docs WHERE rowid IN ({rowid_placeholders})",
+                rowids,
+            )
+            conn.commit()
+        return len(rowids)
+
     def search(
         self,
         vector: list[float],
