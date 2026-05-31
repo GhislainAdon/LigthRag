@@ -207,6 +207,7 @@ class PageIndexFileSystem:
             raise RuntimeError("pifs add requires the summary projection index")
 
         self._ensure_add_completion_defaults()
+        add_created_folder_paths = self._add_created_folder_paths(folder_path)
         file_ref = make_file_ref(virtual_path.strip("/"))
         uploads_dir = self.workspace / "artifacts" / "uploads"
         final_dir = uploads_dir / file_ref
@@ -262,6 +263,7 @@ class PageIndexFileSystem:
                     self._cleanup_add_catalog_record(file_ref)
                 self._cleanup_add_summary_projection(records)
                 self._cleanup_failed_register_artifacts(records)
+                self._cleanup_add_created_folders(add_created_folder_paths)
                 if final_dir_created:
                     shutil.rmtree(final_dir, ignore_errors=True)
                 raise
@@ -424,6 +426,21 @@ class PageIndexFileSystem:
             )
         if "summary" not in self.semantic_retrieval_channels():
             raise RuntimeError("pifs add failed to configure summary semantic retrieval")
+
+    def _add_created_folder_paths(self, folder_path: str) -> list[str]:
+        paths = self._folder_ancestor_paths(folder_path)
+        return [path for path in paths if not self.store.folder_exists(path)]
+
+    @staticmethod
+    def _folder_ancestor_paths(folder_path: str) -> list[str]:
+        normalized = normalize_path(folder_path)
+        if normalized == "/":
+            return []
+        segments = [segment for segment in normalized.strip("/").split("/") if segment]
+        paths: list[str] = []
+        for index in range(1, len(segments) + 1):
+            paths.append("/" + "/".join(segments[:index]))
+        return paths
 
     def configure_existing_projection_retrieval(self) -> bool:
         """Attach semantic retrieval to already-built projection indexes.
@@ -1708,6 +1725,13 @@ class PageIndexFileSystem:
                 delete_file_refs = getattr(index, "delete_file_refs", None)
                 if callable(delete_file_refs):
                     delete_file_refs([file_ref])
+            except Exception:
+                continue
+
+    def _cleanup_add_created_folders(self, folder_paths: list[str]) -> None:
+        for folder_path in reversed(folder_paths):
+            try:
+                self.store.delete_empty_folder(folder_path)
             except Exception:
                 continue
 

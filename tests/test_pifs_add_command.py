@@ -256,6 +256,50 @@ def test_add_failure_after_summary_vector_rolls_back_catalog_and_vector(
     assert not list((workspace / "artifacts" / "raw").glob("*.json"))
 
 
+def test_add_failure_removes_nested_folders_created_only_for_add(tmp_path, monkeypatch):
+    source = tmp_path / "nested.txt"
+    source.write_text("nested rollback body", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    filesystem = make_filesystem(workspace)
+
+    def fail_status_update(*args, **kwargs):
+        raise RuntimeError("metadata status update failed")
+
+    monkeypatch.setattr(filesystem.store, "update_file_metadata_status", fail_status_update)
+
+    with pytest.raises(RuntimeError, match="metadata status update failed"):
+        filesystem.add_file(source, "/documents/reports")
+
+    listing = filesystem.browse("/", recursive=True)
+    assert listing["files"] == []
+    assert listing["folders"] == []
+    assert filesystem.summary_projection_indexer.index.info()["document_count"] == 0
+    assert not list((workspace / "artifacts" / "uploads").glob("**/*"))
+    assert not list((workspace / "artifacts" / "text").glob("*.txt"))
+    assert not list((workspace / "artifacts" / "raw").glob("*.json"))
+
+
+def test_add_failure_preserves_preexisting_parent_folder(tmp_path, monkeypatch):
+    source = tmp_path / "nested.txt"
+    source.write_text("nested rollback body", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    filesystem = make_filesystem(workspace)
+    filesystem.create_folder("/documents")
+
+    def fail_status_update(*args, **kwargs):
+        raise RuntimeError("metadata status update failed")
+
+    monkeypatch.setattr(filesystem.store, "update_file_metadata_status", fail_status_update)
+
+    with pytest.raises(RuntimeError, match="metadata status update failed"):
+        filesystem.add_file(source, "/documents/reports")
+
+    listing = filesystem.browse("/", recursive=True)
+    assert listing["files"] == []
+    assert [folder["path"] for folder in listing["folders"]] == ["/documents"]
+    assert filesystem.summary_projection_indexer.index.info()["document_count"] == 0
+
+
 def test_cli_add_uses_workspace_and_prints_added_file(monkeypatch, capsys, tmp_path):
     from pageindex.filesystem import cli
 
