@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
+import shutil
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import unquote, urlparse
 
@@ -91,6 +93,13 @@ PAGEINDEX_DOCUMENT_CONTENT_TYPES = {
 }
 TEXT_ARTIFACT_SUFFIXES = {".txt", ".text"}
 TEXT_ARTIFACT_CONTENT_TYPES = {"text/plain"}
+ADD_FILE_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".txt": "text/plain",
+    ".text": "text/plain",
+}
 
 
 class PageIndexFileSystem:
@@ -171,6 +180,83 @@ class PageIndexFileSystem:
             self._ensure_register_completion_defaults()
         return self.register_file(**kwargs)
 
+    def add_file(
+        self,
+        physical_path: Union[str, Path],
+        virtual_target: Union[str, Path],
+    ) -> dict[str, Any]:
+        source = Path(physical_path).expanduser()
+        if not source.is_file():
+            raise FileNotFoundError(f"Source file not found: {source}")
+        suffix = source.suffix.lower()
+        content_type = ADD_FILE_CONTENT_TYPES.get(suffix)
+        if content_type is None:
+            supported = ", ".join(sorted(ADD_FILE_CONTENT_TYPES))
+            raise ValueError(
+                f"Unsupported file type: {suffix or '<none>'}; supported: {supported}"
+            )
+
+        folder_path, filename, virtual_path = self._resolve_add_target(
+            virtual_target,
+            physical_basename=source.name,
+            physical_suffix=suffix,
+        )
+        if self.store.file_basename_exists_in_folder(folder_path, filename):
+            raise FileExistsError(f"File already exists at {virtual_path}")
+
+        self._ensure_add_completion_defaults()
+        file_ref = make_file_ref(virtual_path.strip("/"))
+        uploads_dir = self.workspace / "artifacts" / "uploads"
+        final_dir = uploads_dir / file_ref
+        final_path = final_dir / filename
+        final_dir_created = False
+        records: list[dict[str, Any]] = []
+
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=f".add-{file_ref}-", dir=uploads_dir) as tmp:
+            temp_path = Path(tmp) / filename
+            try:
+                shutil.copy2(source, temp_path)
+                if final_dir.exists():
+                    raise FileExistsError(
+                        f"Workspace artifact already exists for {virtual_path}: {final_dir}"
+                    )
+                final_dir.mkdir(parents=True)
+                final_dir_created = True
+                os.replace(temp_path, final_path)
+
+                record = self._prepare_file_record(
+                    {
+                        "storage_uri": final_path.as_uri(),
+                        "source_path": virtual_path.strip("/"),
+                        "folder_path": folder_path,
+                        "metadata": {},
+                        "external_id": None,
+                        "title": filename,
+                        "content": self._add_file_content(final_path, content_type),
+                        "content_type": content_type,
+                        "metadata_policy": self._add_metadata_policy(),
+                    }
+                )
+                records = [record]
+                self._require_add_pageindex_ready(record)
+                self._generate_register_metadata(record)
+                self._require_add_metadata_ready(record)
+                self._complete_summary_projection_index(record)
+                self._require_add_summary_projection_ready(record)
+                self._register_generation_policy_schema(records)
+                self._sync_owned_raw_artifact(record)
+                self.store.insert_files(records)
+            except Exception:
+                self._cleanup_failed_register_artifacts(records)
+                if final_dir_created:
+                    shutil.rmtree(final_dir, ignore_errors=True)
+                raise
+
+        info = self.store.file_info(file_ref)
+        info["path"] = virtual_path
+        return info
+
     def register_files(self, files: list[dict[str, Any]]) -> list[str]:
         records = [self._prepare_file_record(file) for file in files]
         try:
@@ -243,6 +329,25 @@ class PageIndexFileSystem:
             )
         if self.summary_projection_index and self.semantic_retrieval_backend is None:
             self.configure_hybrid_projection_retrieval(
+                self.summary_projection_index_dir,
+                embedding_provider=self.summary_projection_embedding_provider,
+                embedding_model=self.summary_projection_embedding_model,
+                embedding_dimensions=self.summary_projection_embedding_dimensions,
+                embedding_timeout=self.summary_projection_embedding_timeout,
+            )
+
+    def _ensure_add_completion_defaults(self) -> None:
+        if self.metadata_generator is None:
+            self.metadata_generator = MetadataGenerator(
+                provider=self.metadata_provider,
+                model=self.metadata_model,
+                base_url=self.metadata_base_url,
+                max_text_chars=self.metadata_max_text_chars,
+            )
+        if self.summary_projection_index and self.summary_projection_indexer is None:
+            from .projection_indexing import SummaryProjectionIndexer
+
+            self.summary_projection_indexer = SummaryProjectionIndexer.from_provider(
                 self.summary_projection_index_dir,
                 embedding_provider=self.summary_projection_embedding_provider,
                 embedding_model=self.summary_projection_embedding_model,
@@ -1074,6 +1179,117 @@ class PageIndexFileSystem:
 
     def _create_folder(self, path: str) -> str:
         return self.create_folder(path)
+
+    @classmethod
+    def _resolve_add_target(
+        cls,
+        virtual_target: Union[str, Path],
+        *,
+        physical_basename: str,
+        physical_suffix: str,
+    ) -> tuple[str, str, str]:
+        raw_target = str(virtual_target).strip()
+        if not raw_target:
+            raise ValueError("pifs add target is required")
+        normalized = normalize_path(raw_target)
+        posix_target = PurePosixPath(normalized)
+        raw_looks_like_folder = raw_target.replace("\\", "/").endswith("/")
+        target_suffix = posix_target.suffix.lower()
+        if raw_looks_like_folder or target_suffix not in ADD_FILE_CONTENT_TYPES:
+            folder_path = normalized
+            filename = physical_basename
+        else:
+            if target_suffix != physical_suffix:
+                raise ValueError(
+                    "pifs add target file extension must match the physical file extension"
+                )
+            folder_path = normalize_path(str(posix_target.parent))
+            filename = posix_target.name
+        cls._validate_add_filename(filename)
+        virtual_path = cls._join_virtual_file_path(folder_path, filename)
+        return folder_path, filename, virtual_path
+
+    @staticmethod
+    def _validate_add_filename(filename: str) -> None:
+        if not filename or filename in {".", ".."}:
+            raise ValueError("pifs add target filename is required")
+        if "/" in filename or "\\" in filename:
+            raise ValueError("pifs add target filename must be a basename")
+
+    @staticmethod
+    def _join_virtual_file_path(folder_path: str, filename: str) -> str:
+        folder_path = normalize_path(folder_path)
+        if folder_path == "/":
+            return f"/{filename}"
+        return f"{folder_path}/{filename}"
+
+    @staticmethod
+    def _add_metadata_policy() -> dict[str, Any]:
+        return {
+            "fields": {
+                "summary": True,
+                "doc_type": False,
+                "domain": False,
+                "topic": False,
+                "entity": False,
+                "relation": False,
+            },
+            "projection_indexes": {"summary": True},
+            "batch": False,
+        }
+
+    def _add_file_content(self, path: Path, content_type: str) -> str:
+        if self._source_format(str(path), content_type) in {"markdown", "text"}:
+            return path.read_text(encoding="utf-8")
+        return ""
+
+    def _require_add_pageindex_ready(self, record: dict[str, Any]) -> None:
+        if self._source_format(record["source_path"], record["content_type"]) not in {
+            "pdf",
+            "markdown",
+        }:
+            return
+        if record.get("pageindex_tree_status") == "built" and record.get("pageindex_doc_id"):
+            return
+        message = self._pageindex_tree_failure_message(record.get("metadata_status")) or (
+            "PageIndex tree was not built"
+        )
+        raise RuntimeError(f"pifs add failed to build PageIndex tree: {message}")
+
+    @staticmethod
+    def _require_add_metadata_ready(record: dict[str, Any]) -> None:
+        metadata = record.get("metadata") or {}
+        summary = str(metadata.get("summary") or "").strip()
+        if not summary:
+            raise MetadataGenerationError(
+                "pifs add requires synchronous generated summary metadata"
+            )
+        status = record.get("metadata_status") or {}
+        summary_status = (status.get("fields") or {}).get("summary") or {}
+        if summary_status.get("status") != "generated":
+            raise MetadataGenerationError(
+                "pifs add requires generated summary metadata before registration"
+            )
+        if status.get("status") == "failed":
+            raise MetadataGenerationError(
+                "pifs add metadata generation failed before registration"
+            )
+
+    def _require_add_summary_projection_ready(self, record: dict[str, Any]) -> None:
+        if not self.summary_projection_index:
+            return
+        summary_projection = (
+            (record.get("metadata_status") or {})
+            .get("projection_indexes", {})
+            .get("summary")
+        )
+        if not summary_projection or not summary_projection.get("requested"):
+            raise RuntimeError("pifs add requires a requested summary projection index")
+        if summary_projection.get("status") != "ready":
+            detail = summary_projection.get("error") or summary_projection.get("status")
+            raise RuntimeError(
+                f"pifs add failed to build summary projection index: {detail}"
+            )
 
     def _prepare_file_record(self, file: dict[str, Any]) -> dict[str, Any]:
         storage_uri = file["storage_uri"]

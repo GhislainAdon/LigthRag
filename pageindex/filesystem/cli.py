@@ -279,6 +279,23 @@ def _run_passthrough(
     return 0
 
 
+def _run_add(argv: list[str], *, workspace: str) -> int:
+    parser = argparse.ArgumentParser(
+        prog="pifs add",
+        description="Add a local file to a PageIndex FileSystem workspace",
+    )
+    parser.add_argument("physical_path")
+    parser.add_argument("virtual_target")
+    args = parser.parse_args(argv)
+
+    filesystem = _filesystem_from_workspace(workspace)
+    info = filesystem.add_file(args.physical_path, args.virtual_target)
+    print(f"added: {info.get('path') or '/' + str(info.get('source_path') or '').strip('/')}")
+    print(f"file_ref: {info['file_ref']}")
+    print(f"storage_uri: {info['storage_uri']}")
+    return 0
+
+
 def _run_set(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="pifs set",
@@ -326,6 +343,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_ask(command_args, workspace_default=args.workspace)
         if command_name == "chat":
             return _run_chat(command_args, workspace_default=args.workspace)
+        if command_name == "add":
+            if not args.workspace:
+                parser.error("--workspace is required unless PIFS_WORKSPACE is set or `pifs set workspace <path>` has been run")
+            return _run_add(command_args, workspace=args.workspace)
 
         if "--json" in command_tokens:
             command_tokens = [token for token in command_tokens if token != "--json"]
