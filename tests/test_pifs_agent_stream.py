@@ -273,28 +273,6 @@ class PIFSAgentStreamTest(unittest.TestCase):
         self.assertIn("cat <path> --structure", demo_prompt)
         self.assertNotIn("search-summary", demo_prompt)
 
-    def test_built_agent_instructions_filter_legacy_semantic_command_surface(self):
-        class LegacySemanticBackend:
-            semantic_tool_channels = ("summary", "entity", "relation")
-
-        with tempfile.TemporaryDirectory() as workspace:
-            filesystem = PageIndexFileSystem(
-                workspace,
-                semantic_retrieval_backend=LegacySemanticBackend(),
-            )
-            instructions = build_pifs_agent_instructions(filesystem)
-
-        self.assertIn('browse [-R] <folder> "<query>"', instructions)
-        for old_command in (
-            "search-summary",
-            "search-entity",
-            "search-relation",
-            "semantic-grep",
-            "find --name",
-            "find --relation",
-        ):
-            self.assertNotIn(old_command, instructions)
-
     def test_prompt_rejects_find_grep_as_exhaustive_search(self):
         self.assertIn("Do not use find | grep as an exhaustive search", AGENT_TOOL_POLICY)
         self.assertIn("find output can be scoped or limited", AGENT_TOOL_POLICY)

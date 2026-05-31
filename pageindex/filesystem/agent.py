@@ -124,15 +124,6 @@ Tool policy:
 - Distinguish default/register metadata from caller-provided custom metadata when the evidence supports it.
 """
 
-LEGACY_SEMANTIC_COMMAND_SURFACE_TERMS = (
-    "search-summary",
-    "search-entity",
-    "search-relation",
-    "semantic-grep",
-    "find --name",
-    "find --relation",
-)
-
 STREAM_MODE_ALIASES = {
     "": "off",
     "none": "off",
@@ -273,16 +264,6 @@ def compact_tool_output_preview(
     return preview
 
 
-def agent_visible_command_surface(executor: PIFSCommandExecutor) -> str:
-    """Hide legacy semantic command hints from ask/chat default instructions."""
-    lines = []
-    for line in executor.describe_available_command_surfaces().splitlines():
-        if any(term in line for term in LEGACY_SEMANTIC_COMMAND_SURFACE_TERMS):
-            continue
-        lines.append(line)
-    return "\n".join(lines)
-
-
 def build_agent_initial_context(
     filesystem: PageIndexFileSystem,
     *,
@@ -312,7 +293,7 @@ def build_agent_initial_context(
                 ensure_ascii=False,
             ),
             "Workspace retrieval capabilities:",
-            agent_visible_command_surface(executor),
+            executor.describe_available_command_surfaces(),
         ]
     )
 
