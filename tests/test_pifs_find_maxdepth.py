@@ -74,14 +74,26 @@ def test_find_maxdepth_one_returns_direct_files_only(tmp_path):
     assert [row["external_id"] for row in rows] == ["doc_root"]
 
 
-def test_find_output_is_path_first_without_session_refs(tmp_path):
+def test_find_output_is_path_only_without_session_refs(tmp_path):
     executor = _register_find_fixture(tmp_path)
     executor.json_output = False
 
     output = executor.execute("find /documents -maxdepth 1 -type f")
 
-    assert output.startswith("/documents/Root document id=doc_root file_ref=file_")
+    assert output == "/documents/Root document"
     assert "ref_1" not in output
+    assert "id=doc_root" not in output
+    assert "file_ref=" not in output
+    assert "title=Root document" not in output
+
+
+def test_find_verbose_output_includes_document_metadata(tmp_path):
+    executor = _register_find_fixture(tmp_path)
+    executor.json_output = False
+
+    output = executor.execute("find /documents -maxdepth 1 -type f --verbose")
+
+    assert output.startswith("/documents/Root document id=doc_root file_ref=file_")
     assert "title=Root document" in output
 
 
@@ -359,9 +371,9 @@ def test_find_directory_output_renders_root_without_double_slash(tmp_path):
 
     output = executor.execute("find / -maxdepth 1 -type d")
 
-    assert output.splitlines()[0] == "/ folders=1 files=0"
+    assert output.splitlines()[0] == "/"
     assert "//" not in output
-    assert "/documents/ folders=1 files=1" in output
+    assert "/documents/" in output.splitlines()
 
 
 def test_find_maxdepth_combines_with_where_and_limit(tmp_path):

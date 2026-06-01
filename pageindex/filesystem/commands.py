@@ -72,7 +72,7 @@ class PIFSCommandExecutor:
             "- ls/tree: folder browsing",
             '- browse [-R] <folder> "<query>" [--space summary|entity|relation] '
             "[--page N] [--where JSON]: semantic relevance file browsing",
-            "- find <folder>: folder path is positional; do not put paths in --where",
+            "- find <folder>: shell-like path listing; folder path is positional; do not put paths in --where",
             "- find --where: exact/canonical metadata DSL filtering using stat --schema fields only",
             "- find <folder> -maxdepth N -type f|d: bounded folder traversal for find",
             "- grep <query> <file>: single-file lexical evidence search without path prefixes",
@@ -138,8 +138,17 @@ class PIFSCommandExecutor:
         name = tokens[0]
         if name not in self.allowed_commands():
             raise PIFSCommandError(f"Unsupported command: {name}")
+        verbose_output = False
+        if name == "find" and "--verbose" in tokens[1:]:
+            tokens = [tokens[0], *[token for token in tokens[1:] if token != "--verbose"]]
+            verbose_output = True
         data = getattr(self, f"_cmd_{name}")(tokens[1:])
-        return self._render(data, json_output=json_output, command_name=name)
+        return self._render(
+            data,
+            json_output=json_output,
+            command_name=name,
+            verbose_output=verbose_output,
+        )
 
     def _execute_pipe_filter(self, input_text: str, command: str) -> str:
         self._validate_raw_command(command)
@@ -707,13 +716,26 @@ class PIFSCommandExecutor:
         info = self.filesystem._stat(target)
         return self._with_target_context(dict(info), target)
 
-    def _render(self, data: Any, *, json_output: bool, command_name: str) -> str:
+    def _render(
+        self,
+        data: Any,
+        *,
+        json_output: bool,
+        command_name: str,
+        verbose_output: bool = False,
+    ) -> str:
         jsonable = self._jsonable(data)
         if json_output:
             return json.dumps({"ok": True, "data": jsonable}, ensure_ascii=False)
-        return self._render_shell(command_name, jsonable)
+        return self._render_shell(command_name, jsonable, verbose_output=verbose_output)
 
-    def _render_shell(self, command_name: str, data: Any) -> str:
+    def _render_shell(
+        self,
+        command_name: str,
+        data: Any,
+        *,
+        verbose_output: bool = False,
+    ) -> str:
         if command_name == "cat":
             return self._render_cat(data)
         if command_name == "ls":
@@ -725,7 +747,7 @@ class PIFSCommandExecutor:
         if command_name == "grep":
             return self._render_grep(data)
         if command_name == "find":
-            return self._render_find(data)
+            return self._render_find(data, verbose=verbose_output)
         if command_name == "stat":
             return self._render_stat(data)
         if isinstance(data, dict):
@@ -924,10 +946,12 @@ class PIFSCommandExecutor:
             return where
         return json.dumps(where, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
-    def _render_find(self, data: Any) -> str:
+    def _render_find(self, data: Any, *, verbose: bool = False) -> str:
         if not isinstance(data, list):
             return str(data)
         if data and isinstance(data[0], dict) and "path" in data[0] and "file_ref" not in data[0]:
+            if not verbose:
+                return "\n".join(self._folder_row_path(item["path"]) for item in data)
             return "\n".join(
                 (
                     f"{self._folder_row_path(item['path'])} matched_files={item['matched_files']} "
@@ -938,7 +962,9 @@ class PIFSCommandExecutor:
                 )
                 for item in data
             )
-        return "\n".join(self._file_row_text(item) for item in data)
+        if verbose:
+            return "\n".join(self._file_row_text(item) for item in data)
+        return "\n".join(self._file_target_path(item) for item in data)
 
     def _folder_row_path(self, path: str) -> str:
         normalized = self._normalize_folder_path(path)
