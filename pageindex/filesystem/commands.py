@@ -414,6 +414,7 @@ class PIFSCommandExecutor:
                                 direct_results,
                                 query,
                                 require_match=True,
+                                scope_path=normalized,
                             ),
                         }
                     ranked = self._rank_child_folders(
@@ -443,6 +444,7 @@ class PIFSCommandExecutor:
                     results,
                     query,
                     require_match=True,
+                    scope_path=normalized,
                 ),
             }
         if recursive:
@@ -566,11 +568,11 @@ class PIFSCommandExecutor:
             self.MAX_STAT_FIELD_TARGETS,
         )
         if len(targets) == 1:
-            return {"target": targets[0], **self.filesystem._stat(targets[0])}
+            return self._stat_target_payload(targets[0])
         return {
             "mode": "files",
             "target_count": len(targets),
-            "data": [{"target": target, **self.filesystem._stat(target)} for target in targets],
+            "data": [self._stat_target_payload(target) for target in targets],
         }
 
     def _bounded_text_artifact(self, target: str, location: str) -> dict[str, Any]:
@@ -680,7 +682,7 @@ class PIFSCommandExecutor:
             )
 
     def _stat_field_row(self, field: str, target: str) -> dict[str, Any]:
-        info = self.filesystem._stat(target)
+        info = self._stat_target_payload(target)
         folder_paths = [
             folder.get("path", "")
             for folder in info.get("folders", [])
@@ -700,6 +702,10 @@ class PIFSCommandExecutor:
             }
         )
         return row
+
+    def _stat_target_payload(self, target: str) -> dict[str, Any]:
+        info = self.filesystem._stat(target)
+        return self._with_target_context(dict(info), target)
 
     def _render(self, data: Any, *, json_output: bool, command_name: str) -> str:
         jsonable = self._jsonable(data)
@@ -1020,8 +1026,12 @@ class PIFSCommandExecutor:
         title = str(item.get("title") or item.get("name") or "").strip()
         folder_paths = item.get("folder_paths") or []
         folder_path = item.get("folder_path")
-        if not folder_paths and folder_path:
-            folder_paths = [folder_path]
+        if folder_path:
+            folder_path = self._normalize_folder_path(str(folder_path))
+            folder_paths = [
+                folder_path,
+                *[path for path in folder_paths if self._normalize_folder_path(str(path)) != folder_path],
+            ]
         if not folder_paths:
             folder_paths = self._folder_paths_for_file(file_ref)
         if folder_paths and title:
@@ -1120,6 +1130,7 @@ class PIFSCommandExecutor:
         *,
         require_match: bool = False,
         limit: int | None = None,
+        scope_path: str | None = None,
     ) -> list[dict[str, Any]]:
         hits = []
         for result in results:
@@ -1131,11 +1142,14 @@ class PIFSCommandExecutor:
                     "file_ref": result.file_ref,
                     "external_id": result.external_id,
                     "title": result.title,
+                    "folder_path": result.folder_path,
                     "folder_paths": result.folder_paths,
                     "line": line,
                     "text": text or result.snippet,
                 }
             )
+            if scope_path:
+                hits[-1] = self._with_scope_context(hits[-1], scope_path)
             if limit is not None and len(hits) >= limit:
                 break
         return hits
@@ -1151,6 +1165,7 @@ class PIFSCommandExecutor:
                         "file_ref": file_ref,
                         "external_id": entry.external_id,
                         "title": entry.title,
+                        "folder_path": self._target_folder_path(target),
                         "folder_paths": self._folder_paths_for_file(file_ref),
                         "line": line_number,
                         "text": self._compact_text(line, max_chars=220),
@@ -1185,6 +1200,76 @@ class PIFSCommandExecutor:
             return [folder["path"] for folder in self.filesystem.store.folder_memberships(file_ref)]
         except KeyError:
             return []
+
+    def _with_scope_context(self, item: dict[str, Any], scope_path: str) -> dict[str, Any]:
+        scope_path = self._normalize_folder_path(scope_path)
+        folder_paths = [str(path) for path in item.get("folder_paths") or []]
+        scoped = [
+            path
+            for path in folder_paths
+            if self._is_same_or_descendant(path, scope_path)
+        ]
+        if scoped:
+            selected = sorted(scoped, key=lambda value: (len(value), value))[0]
+            item = dict(item)
+            item["folder_path"] = selected
+            return item
+        return item
+
+    def _with_target_context(self, item: dict[str, Any], target: str) -> dict[str, Any]:
+        folder_path = self._target_folder_path(target)
+        title = self._target_basename(target)
+        if folder_path is None or not title:
+            return {"target": target, **item}
+        file_ref = item.get("file_ref")
+        folder_paths = [
+            folder.get("path", "")
+            for folder in item.get("folders", [])
+            if folder.get("path")
+        ]
+        if folder_path not in folder_paths:
+            return {"target": target, **item}
+        item = dict(item)
+        item["target"] = target
+        item["path"] = self._join_target_path(folder_path, title)
+        item["folder_path"] = folder_path
+        item["folder_paths"] = [
+            folder_path,
+            *[path for path in folder_paths if path != folder_path],
+        ]
+        if file_ref:
+            display_name = self.filesystem.store.membership_display_name(str(file_ref), folder_path)
+            if display_name:
+                item["title"] = display_name
+                item["name"] = display_name
+        return item
+
+    @classmethod
+    def _is_same_or_descendant(cls, path: str, scope_path: str) -> bool:
+        path = cls._normalize_folder_path(path)
+        scope_path = cls._normalize_folder_path(scope_path)
+        return path == scope_path or path.startswith(f"{scope_path.rstrip('/')}/")
+
+    @classmethod
+    def _target_folder_path(cls, target: str) -> str | None:
+        text = str(target or "").strip()
+        if not text.startswith("/"):
+            return None
+        normalized = cls._normalize_folder_path(text)
+        if normalized == "/":
+            return None
+        parent = normalized.rsplit("/", 1)[0] or "/"
+        return cls._normalize_folder_path(parent)
+
+    @staticmethod
+    def _target_basename(target: str) -> str:
+        text = str(target or "").replace("\\", "/").rstrip("/")
+        return text.rsplit("/", 1)[-1]
+
+    @classmethod
+    def _join_target_path(cls, folder_path: str, title: str) -> str:
+        folder_path = cls._normalize_folder_path(folder_path).rstrip("/")
+        return f"/{title}" if not folder_path else f"{folder_path}/{title}"
 
     def _is_folder(self, path: str) -> bool:
         try:
