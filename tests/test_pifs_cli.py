@@ -16,7 +16,7 @@ class FakeFileSystem:
         return True
 
 
-def test_cli_workspace_configures_existing_projection_retrieval(monkeypatch, tmp_path):
+def test_cli_workspace_does_not_eagerly_configure_projection_retrieval(monkeypatch, tmp_path):
     from pageindex.filesystem import cli
 
     workspace = tmp_path / "workspace"
@@ -26,7 +26,7 @@ def test_cli_workspace_configures_existing_projection_retrieval(monkeypatch, tmp
     filesystem = cli._filesystem_from_workspace(str(workspace))
 
     assert filesystem.workspace == workspace
-    assert filesystem.projection_retrieval_configured is True
+    assert filesystem.projection_retrieval_configured is False
 
 
 def test_cli_workspace_without_projection_index_does_not_require_sqlite_vec(
@@ -54,8 +54,9 @@ def test_cli_workspace_without_projection_index_does_not_require_sqlite_vec(
     assert filesystem.semantic_retrieval_channels() == ()
 
 
-def test_cli_workspace_surfaces_projection_dimension_mismatch(tmp_path):
+def test_browse_surfaces_projection_dimension_mismatch_lazily(tmp_path):
     from pageindex.filesystem import cli
+    from pageindex.filesystem.commands import PIFSCommandExecutor
     from pageindex.filesystem.semantic_index import SemanticIndexRecord, SQLiteVecSemanticIndex
 
     workspace = tmp_path / "workspace"
@@ -83,6 +84,9 @@ def test_cli_workspace_surfaces_projection_dimension_mismatch(tmp_path):
         ]
     )
 
+    filesystem = cli._filesystem_from_workspace(str(workspace))
+
+    assert filesystem.semantic_retrieval_channels() == ()
     with pytest.raises(
         RuntimeError,
         match=(
@@ -90,7 +94,7 @@ def test_cli_workspace_surfaces_projection_dimension_mismatch(tmp_path):
             "dimension 3.*summary_projection_embedding_dimensions is 1024.*Rebuild"
         ),
     ):
-        cli._filesystem_from_workspace(str(workspace))
+        PIFSCommandExecutor(filesystem).execute('browse / "summary"')
 
 
 def test_cli_passthrough_invokes_pifs_command_executor(monkeypatch, capsys, tmp_path):

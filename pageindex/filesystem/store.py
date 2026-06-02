@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -28,6 +29,7 @@ class SQLiteFileSystemStore:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.create_function("pifs_decimal_compare", 2, self._decimal_compare)
         return conn
 
     def initialize_schema(self) -> None:
@@ -279,9 +281,17 @@ class SQLiteFileSystemStore:
         ]
         columns.extend(["deleted_at", "updated_at"])
         placeholders = ", ".join(["?"] * (len(columns) - 2) + ["NULL", "CURRENT_TIMESTAMP"])
+        update_assignments = [
+            f"{column} = excluded.{column}"
+            for column in columns
+            if column not in {"file_ref", "deleted_at", "updated_at"}
+        ]
+        update_assignments.append("updated_at = CURRENT_TIMESTAMP")
         return f"""
-            INSERT OR REPLACE INTO files ({", ".join(columns)})
+            INSERT INTO files ({", ".join(columns)})
             VALUES ({placeholders})
+            ON CONFLICT(file_ref) DO UPDATE SET
+                {", ".join(update_assignments)}
         """
 
     @staticmethod
@@ -1053,6 +1063,7 @@ class SQLiteFileSystemStore:
         metadata_filter: Optional[dict[str, Any]] = None,
         limit: int = 100,
         max_depth: int | None = None,
+        include_self: bool = False,
     ) -> list[dict[str, Any]]:
         path = normalize_path(path)
         if max_depth is not None and max_depth < 0:
@@ -1062,11 +1073,16 @@ class SQLiteFileSystemStore:
         folder_depth_clause = ""
         folder_depth_params: list[Any] = []
         if max_depth is not None:
-            if max_depth == 0:
+            if max_depth == 0 and not include_self:
                 folder_depth_clause = "AND 0"
             else:
                 folder_depth_clause = f"AND ({self._folder_depth_sql('fo.path')} - ?) <= ?"
                 folder_depth_params = [self._folder_depth(path), max_depth]
+        folder_scope_clause = (
+            "(fo.path = ? OR fo.path LIKE ? ESCAPE '\\')"
+            if include_self
+            else "fo.path != ? AND fo.path LIKE ? ESCAPE '\\'"
+        )
         sql = f"""
             SELECT *
             FROM (
@@ -1108,7 +1124,7 @@ class SQLiteFileSystemStore:
                           {metadata_clause}
                     ) AS matched_files
                 FROM folders fo
-                WHERE fo.path != ? AND fo.path LIKE ? ESCAPE '\\'
+                WHERE {folder_scope_clause}
                   {folder_depth_clause}
             )
             WHERE matched_files > 0
@@ -1139,10 +1155,20 @@ class SQLiteFileSystemStore:
     ) -> list[dict[str, Any]]:
         query_text = self._query_text(query)
         match_queries = self._fts_match_queries(query_text) if query_text else [None]
+        if query_text and not match_queries:
+            match_queries = [None]
         results: list[dict[str, Any]] = []
         seen: set[str] = set()
         for match_query in match_queries:
-            rows = self._search_once(match_query, scope, metadata_filter, max(limit * 25, limit))
+            if query_text and match_query is None:
+                rows = self._search_literal_once(
+                    query_text,
+                    scope,
+                    metadata_filter,
+                    max(limit * 25, limit),
+                )
+            else:
+                rows = self._search_once(match_query, scope, metadata_filter, max(limit * 25, limit))
             for row in rows:
                 if row["file_ref"] in seen:
                     continue
@@ -1153,6 +1179,78 @@ class SQLiteFileSystemStore:
             if results:
                 return results
         return results
+
+    def _search_literal_once(
+        self,
+        query_text: str,
+        scope: Optional[dict[str, Any]],
+        metadata_filter: Optional[dict[str, Any]],
+        limit: int,
+    ) -> list[sqlite3.Row]:
+        selects = [
+            "f.file_ref",
+            "f.external_id",
+            "f.title",
+            "f.descriptor",
+            "f.pageindex_tree_status",
+            "f.metadata_json",
+            "f.metadata_status_json",
+            "f.created_at",
+            """
+            (
+                SELECT display_folder.folder_id
+                FROM file_folders display_ff
+                JOIN folders display_folder
+                  ON display_folder.folder_id = display_ff.folder_id
+                WHERE display_ff.file_ref = f.file_ref
+                ORDER BY display_folder.path
+                LIMIT 1
+            ) AS folder_id
+            """,
+            """
+            (
+                SELECT display_folder.path
+                FROM file_folders display_ff
+                JOIN folders display_folder
+                  ON display_folder.folder_id = display_ff.folder_id
+                WHERE display_ff.file_ref = f.file_ref
+                ORDER BY display_folder.path
+                LIMIT 1
+            ) AS folder_path
+            """,
+            "f.descriptor AS snippet",
+            "0 AS rank",
+        ]
+        where = [
+            "f.deleted_at IS NULL",
+            """
+            (
+                lower(file_fts.title) LIKE lower(?) ESCAPE '\\'
+                OR lower(file_fts.body) LIKE lower(?) ESCAPE '\\'
+                OR lower(file_fts.metadata_text) LIKE lower(?) ESCAPE '\\'
+            )
+            """,
+        ]
+        literal_like = self._contains_like(query_text)
+        params: list[Any] = [literal_like, literal_like, literal_like]
+        scope_sql, scope_params = self._scope_sql(scope)
+        if scope_sql:
+            where.append(scope_sql)
+            params.extend(scope_params)
+        metadata_sql, metadata_params = self._metadata_filter_sql(metadata_filter)
+        where.extend(metadata_sql)
+        params.extend(metadata_params)
+        sql = f"""
+            SELECT {", ".join(selects)}
+            FROM files f
+            JOIN file_fts ON file_fts.file_ref = f.file_ref
+            WHERE {" AND ".join(where)}
+            ORDER BY f.created_at DESC, f.title
+            LIMIT ?
+        """
+        params.append(limit)
+        with self.connect() as conn:
+            return conn.execute(sql, params).fetchall()
 
     def file_refs_for_scope(
         self,
@@ -1287,6 +1385,18 @@ class SQLiteFileSystemStore:
         operator, expected = next(iter(condition.items()))
         field_id = self.field_id(field)
         if operator == "$eq":
+            if self._is_numeric_metadata_value(expected):
+                return (
+                    """
+                    EXISTS (
+                        SELECT 1 FROM metadata_values mv
+                        WHERE mv.file_ref = f.file_ref
+                          AND mv.field_id = ?
+                          AND pifs_decimal_compare(mv.value_text, ?) = 0
+                    )
+                    """,
+                    [field_id, self._metadata_compare_text(expected)],
+                )
             return (
                 """
                 EXISTS (
@@ -1299,6 +1409,18 @@ class SQLiteFileSystemStore:
                 [field_id, self._metadata_compare_text(expected)],
             )
         if operator == "$ne":
+            if self._is_numeric_metadata_value(expected):
+                return (
+                    """
+                    NOT EXISTS (
+                        SELECT 1 FROM metadata_values mv
+                        WHERE mv.file_ref = f.file_ref
+                          AND mv.field_id = ?
+                          AND pifs_decimal_compare(mv.value_text, ?) = 0
+                    )
+                    """,
+                    [field_id, self._metadata_compare_text(expected)],
+                )
             return (
                 """
                 NOT EXISTS (
@@ -1311,20 +1433,29 @@ class SQLiteFileSystemStore:
                 [field_id, self._metadata_compare_text(expected)],
             )
         if operator == "$in":
-            values = [self._metadata_compare_text(item) for item in expected]
+            values = list(expected)
             if not values:
                 return "0", []
-            placeholders = ", ".join("?" for _ in values)
+            value_clauses = []
+            value_params: list[Any] = []
+            for item in values:
+                if self._is_numeric_metadata_value(item):
+                    value_clauses.append("pifs_decimal_compare(mv.value_text, ?) = 0")
+                else:
+                    value_clauses.append("mv.value_text = ?")
+                value_params.append(self._metadata_compare_text(item))
             return (
-                f"""
+                """
                 EXISTS (
                     SELECT 1 FROM metadata_values mv
                     WHERE mv.file_ref = f.file_ref
                       AND mv.field_id = ?
-                      AND mv.value_text IN ({placeholders})
+                      AND (
+                        """ + " OR ".join(value_clauses) + """
+                      )
                 )
                 """,
-                [field_id, *values],
+                [field_id, *value_params],
             )
         if operator == "$contains":
             return (
@@ -1352,11 +1483,10 @@ class SQLiteFileSystemStore:
                         SELECT 1 FROM metadata_values mv
                         WHERE mv.file_ref = f.file_ref
                           AND mv.field_id = ?
-                          AND mv.value_number IS NOT NULL
-                          AND mv.value_number {comparator} ?
+                          AND pifs_decimal_compare(mv.value_text, ?) {comparator} 0
                     )
                     """,
-                    [field_id, float(expected)],
+                    [field_id, self._metadata_compare_text(expected)],
                 )
             return (
                 f"""
@@ -1959,27 +2089,31 @@ class SQLiteFileSystemStore:
         max_depth: int | None = None,
     ) -> list[sqlite3.Row]:
         sql = """
-            SELECT
-                f.file_ref,
-                f.external_id,
-                f.title,
-                f.descriptor,
-                f.pageindex_tree_status,
-                f.metadata_json,
-                f.metadata_status_json,
-                f.created_at,
-                MIN(pf.folder_id) AS folder_id,
-                MIN(pf.path) AS folder_path,
-                MIN(
+            SELECT *
+            FROM (
+                SELECT
+                    f.file_ref,
+                    f.external_id,
+                    f.title,
+                    f.descriptor,
+                    f.pageindex_tree_status,
+                    f.metadata_json,
+                    f.metadata_status_json,
+                    f.created_at,
+                    pf.folder_id AS folder_id,
+                    pf.path AS folder_path,
                     COALESCE(
                         NULLIF(json_extract(ff.metadata_json, '$.display_name'), ''),
                         f.title
-                    )
-                ) AS display_title
-            FROM files f
-            JOIN file_folders ff ON ff.file_ref = f.file_ref
-            JOIN folders pf ON pf.folder_id = ff.folder_id
-            WHERE f.deleted_at IS NULL
+                    ) AS display_title,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY f.file_ref
+                        ORDER BY pf.path, pf.folder_id
+                    ) AS membership_rank
+                FROM files f
+                JOIN file_folders ff ON ff.file_ref = f.file_ref
+                JOIN folders pf ON pf.folder_id = ff.folder_id
+                WHERE f.deleted_at IS NULL
         """
         params: list[Any]
         if recursive:
@@ -1995,8 +2129,9 @@ class SQLiteFileSystemStore:
             sql += " AND pf.path = ?"
             params = [path]
         sql += """
-            GROUP BY f.file_ref
-            ORDER BY lower(display_title), display_title, lower(folder_path), folder_path, f.file_ref
+            )
+            WHERE membership_rank = 1
+            ORDER BY lower(display_title), display_title, lower(folder_path), folder_path, file_ref
             LIMIT ?
         """
         params.append(limit)
@@ -2365,6 +2500,23 @@ class SQLiteFileSystemStore:
         return "" if value is None else str(value)
 
     @staticmethod
+    def _is_numeric_metadata_value(value: Any) -> bool:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    @staticmethod
+    def _decimal_compare(left: Any, right: Any) -> int | None:
+        try:
+            left_decimal = Decimal(str(left))
+            right_decimal = Decimal(str(right))
+            if left_decimal < right_decimal:
+                return -1
+            if left_decimal > right_decimal:
+                return 1
+        except (InvalidOperation, ValueError):
+            return None
+        return 0
+
+    @staticmethod
     def indexed_metadata_values(metadata: dict[str, Any]) -> dict[str, Any]:
         return dict(metadata)
 
@@ -2392,6 +2544,8 @@ def normalize_path(path: str | Path | None) -> str:
     if str(path).strip().lower() == "root":
         return "/"
     parts = [part for part in str(path).replace("\\", "/").split("/") if part and part != "."]
+    if ".." in parts:
+        raise ValueError("PIFS paths must not contain '..'")
     return "/" + "/".join(parts) if parts else "/"
 
 

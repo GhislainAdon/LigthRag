@@ -161,9 +161,7 @@ def _parse_agent_command(
 
 
 def _filesystem_from_workspace(workspace: str) -> PageIndexFileSystem:
-    filesystem = PageIndexFileSystem(Path(workspace).expanduser())
-    filesystem.configure_existing_projection_retrieval()
-    return filesystem
+    return PageIndexFileSystem(Path(workspace).expanduser())
 
 
 def _agent_kwargs(args: argparse.Namespace) -> dict[str, object]:

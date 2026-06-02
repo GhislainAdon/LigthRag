@@ -284,22 +284,29 @@ class PageIndexFileSystem:
 
     def register_files(self, files: list[dict[str, Any]]) -> list[str]:
         records = [self._prepare_file_record(file) for file in files]
+        preexisting_file_refs = self._existing_file_refs(records)
+        new_records = [
+            record for record in records if record["file_ref"] not in preexisting_file_refs
+        ]
         try:
             for record in records:
                 self._generate_register_metadata(record)
             self._register_generation_policy_schema(records)
             self.store.insert_files(records)
+            for record in records:
+                if self._complete_summary_projection_index(record):
+                    self.store.update_file_metadata_status(
+                        record["file_ref"],
+                        metadata=record["metadata"],
+                        metadata_status=record["metadata_status"],
+                    )
+                self._sync_owned_raw_artifact(record)
         except Exception:
+            self._cleanup_add_summary_projection(new_records)
+            for record in new_records:
+                self._cleanup_add_catalog_record(str(record["file_ref"]))
             self._cleanup_failed_register_artifacts(records)
             raise
-        for record in records:
-            if self._complete_summary_projection_index(record):
-                self.store.update_file_metadata_status(
-                    record["file_ref"],
-                    metadata=record["metadata"],
-                    metadata_status=record["metadata_status"],
-                )
-            self._sync_owned_raw_artifact(record)
         return [record["file_ref"] for record in records]
 
     def batch_generate(self, *, limit: int | None = None) -> dict[str, Any]:
@@ -952,7 +959,6 @@ class PageIndexFileSystem:
                 metadata_filter=parsed_filter,
             ):
                 continue
-            seen.add(file_ref)
             entry = self.store.get_file(file_ref)
             folder_paths = [
                 folder["path"]
@@ -964,17 +970,22 @@ class PageIndexFileSystem:
                 entry.folder_path,
             )
             display_title = self.store.membership_display_name(file_ref, folder_path) or entry.title
+            try:
+                stable_path = self._stable_file_locator(
+                    file_ref,
+                    entry,
+                    folder_path=folder_path,
+                )
+            except RuntimeError:
+                continue
+            seen.add(file_ref)
             rank = len(rows) + 1
             rows.append(
                 {
                     "rank": rank,
                     "similarity": self._semantic_candidate_similarity(candidate),
                     "score": self._semantic_candidate_score(candidate),
-                    "path": self._stable_file_locator(
-                        file_ref,
-                        entry,
-                        folder_path=folder_path,
-                    ),
+                    "path": stable_path,
                     "file_ref": file_ref,
                     "document_id": entry.external_id,
                     "external_id": entry.external_id,
@@ -1018,6 +1029,7 @@ class PageIndexFileSystem:
         metadata_filter: Optional[dict[str, Any] | str] = None,
         limit: int = 100,
         max_depth: int | None = None,
+        include_self: bool = False,
     ) -> list[dict[str, Any]]:
         parsed_filter = self.metadata.parse_filter(metadata_filter)
         return self.store.find_folders(
@@ -1025,6 +1037,7 @@ class PageIndexFileSystem:
             metadata_filter=parsed_filter,
             limit=limit,
             max_depth=max_depth,
+            include_self=include_self,
         )
 
     def create_folder(
@@ -1843,6 +1856,19 @@ class PageIndexFileSystem:
             self.store.delete_file(file_ref)
         except Exception:
             return
+
+    def _existing_file_refs(self, records: list[dict[str, Any]]) -> set[str]:
+        existing: set[str] = set()
+        for record in records:
+            file_ref = str(record.get("file_ref") or "")
+            if not file_ref:
+                continue
+            try:
+                self.store.get_file(file_ref)
+            except KeyError:
+                continue
+            existing.add(file_ref)
+        return existing
 
     def _cleanup_add_summary_projection(self, records: list[dict[str, Any]]) -> None:
         indexer = self.summary_projection_indexer

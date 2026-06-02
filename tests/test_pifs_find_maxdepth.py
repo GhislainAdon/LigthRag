@@ -87,6 +87,14 @@ def test_find_output_is_path_only_without_session_refs(tmp_path):
     assert "title=Root document" not in output
 
 
+def test_find_name_stopword_only_uses_literal_fallback(tmp_path):
+    executor = _register_find_fixture(tmp_path)
+
+    rows = _data(executor.execute("find /documents --name the"))
+
+    assert [row["external_id"] for row in rows] == ["doc_other"]
+
+
 def test_find_verbose_output_includes_document_metadata(tmp_path):
     executor = _register_find_fixture(tmp_path)
     executor.json_output = False
@@ -144,6 +152,31 @@ def test_shell_limits_reject_context_expanding_counts(tmp_path):
     ):
         with pytest.raises(PIFSCommandError, match=f"at most {limit}"):
             executor.execute(command)
+
+
+def test_value_options_without_values_raise_command_errors(tmp_path):
+    from pageindex.filesystem.commands import PIFSCommandError
+
+    executor = _register_find_fixture(tmp_path)
+
+    for command, message in (
+        ("find /documents --where", "find --where requires a value"),
+        ("find /documents --name", "find --name requires a value"),
+        ("find /documents -type", "find -type requires a value"),
+        ("find /documents --limit", "find --limit requires a value"),
+        ("grep Root /documents --where", "grep --where requires a value"),
+        ("tree /documents --depth", "tree --depth requires a value"),
+    ):
+        with pytest.raises(PIFSCommandError, match=message):
+            executor.execute(command)
+
+
+def test_tree_json_honors_depth_before_limit(tmp_path):
+    executor = _register_find_fixture(tmp_path)
+
+    rows = _data(executor.execute("tree /documents --depth 1 --limit 10"))["folders"]
+
+    assert [row["path"] for row in rows] == ["/documents/team"]
 
 
 def test_grep_rejects_regex_alternation_patterns(tmp_path):
@@ -388,6 +421,19 @@ def test_find_maxdepth_combines_with_where_and_limit(tmp_path):
     assert len(rows) == 1
     assert rows[0]["metadata"]["department"] == "ops"
     assert rows[0]["folder_path"] in {"/documents", "/documents/team"}
+
+
+def test_find_directory_where_includes_start_when_depth_is_bounded(tmp_path):
+    executor = _register_find_fixture(tmp_path)
+
+    rows = _data(
+        executor.execute(
+            """find /documents -maxdepth 1 -type d --where '{"department":"ops"}'"""
+        )
+    )
+
+    assert [row["path"] for row in rows] == ["/documents", "/documents/team"]
+    assert all(row["matched_files"] > 0 for row in rows)
 
 
 def test_find_maxdepth_rejects_invalid_values_and_unsupported_options(tmp_path):

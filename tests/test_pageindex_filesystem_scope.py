@@ -665,6 +665,41 @@ def test_browse_path_uses_virtual_title_when_storage_paths_are_unrelated(tmp_pat
     assert filesystem.store.resolve_file_ref(result["data"]["data"][0]["path"]) == first_ref
 
 
+def test_browse_skips_ambiguous_candidate_paths(tmp_path):
+    from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+
+    filesystem = PageIndexFileSystem(workspace=tmp_path / "workspace")
+    filesystem.register_file(
+        storage_uri="file:///tmp/slash-title.txt",
+        folder_path="/",
+        external_id="doc_slash_title",
+        title="a/b",
+        content="slash title body",
+    )
+    filesystem.register_file(
+        storage_uri="file:///tmp/nested.txt",
+        folder_path="/a",
+        external_id="doc_nested",
+        title="b",
+        content="nested body",
+    )
+    filesystem.register_file(
+        storage_uri="file:///tmp/good.txt",
+        folder_path="/documents",
+        external_id="doc_good",
+        title="good.txt",
+        content="good body",
+    )
+    filesystem.semantic_retrieval_backend = BrowseBackend(
+        ["doc_slash_title", "doc_good"],
+    )
+    executor = PIFSCommandExecutor(filesystem, json_output=True)
+
+    result = json.loads(executor.execute('browse -R / "summary"'))
+
+    assert [row["external_id"] for row in result["data"]["data"]] == ["doc_good"]
+
+
 def test_old_semantic_commands_are_unsupported_even_when_indexes_exist(tmp_path):
     from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
     from pageindex.filesystem.commands import PIFSCommandError

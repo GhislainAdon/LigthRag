@@ -182,9 +182,9 @@ class PIFSCommandExecutor:
             if arg in {"-R", "-r", "--recursive"}:
                 recursive = True
             elif arg == "--limit":
-                i += 1
+                i, value = self._option_value(args, i, "ls --limit")
                 limit = self._parse_bounded_int(
-                    args[i], "ls --limit", max_value=self.MAX_LS_LIMIT
+                    value, "ls --limit", max_value=self.MAX_LS_LIMIT
                 )
             elif arg.startswith("-"):
                 raise PIFSCommandError(f"Unsupported ls option: {arg}")
@@ -201,13 +201,13 @@ class PIFSCommandExecutor:
         while i < len(args):
             arg = args[i]
             if arg == "--limit":
-                i += 1
+                i, value = self._option_value(args, i, "tree --limit")
                 limit = self._parse_bounded_int(
-                    args[i], "tree --limit", max_value=self.MAX_TREE_LIMIT
+                    value, "tree --limit", max_value=self.MAX_TREE_LIMIT
                 )
             elif arg in {"--depth", "-L"}:
-                i += 1
-                depth = self._parse_non_negative_int(args[i], "tree --depth")
+                i, value = self._option_value(args, i, "tree --depth")
+                depth = self._parse_non_negative_int(value, "tree --depth")
             elif arg.startswith("-"):
                 raise PIFSCommandError(f"Unsupported tree option: {arg}")
             else:
@@ -217,7 +217,12 @@ class PIFSCommandExecutor:
             raise PIFSCommandError("tree --depth must be at least 1")
         if depth > self.MAX_TREE_DEPTH:
             depth = self.MAX_TREE_DEPTH
-        listing = self.filesystem.browse(path, recursive=True, limit=limit)
+        listing = self.filesystem.browse(
+            path,
+            recursive=True,
+            limit=limit,
+            max_depth=depth,
+        )
         return {"path": path, "depth": depth, "limit": limit, **listing}
 
     def _cmd_browse(self, args: list[str]) -> Any:
@@ -277,6 +282,8 @@ class PIFSCommandExecutor:
                 f"{space}. Supported spaces: {', '.join(SEMANTIC_RETRIEVAL_CHANNELS)}"
             )
         if not self.filesystem.has_semantic_channel(space):
+            self.filesystem.configure_existing_projection_retrieval()
+        if not self.filesystem.has_semantic_channel(space):
             available = self.filesystem.semantic_retrieval_channels()
             available_text = ", ".join(available) if available else "none"
             raise PIFSCommandError(
@@ -306,25 +313,21 @@ class PIFSCommandExecutor:
         while i < len(args):
             arg = args[i]
             if arg == "--where":
-                i += 1
-                where = args[i]
+                i, where = self._option_value(args, i, "find --where")
             elif arg == "--name":
-                i += 1
-                name = args[i]
+                i, name = self._option_value(args, i, "find --name")
             elif arg == "--relation":
-                i += 1
-                relation = args[i]
+                i, relation = self._option_value(args, i, "find --relation")
             elif arg == "--limit":
-                i += 1
+                i, value = self._option_value(args, i, "find --limit")
                 limit = self._parse_bounded_int(
-                    args[i], "find --limit", max_value=self.MAX_FIND_LIMIT
+                    value, "find --limit", max_value=self.MAX_FIND_LIMIT
                 )
             elif arg == "-type":
-                i += 1
-                file_type = args[i]
+                i, file_type = self._option_value(args, i, "find -type")
             elif arg == "-maxdepth":
-                i += 1
-                max_depth = self._parse_find_maxdepth(args[i] if i < len(args) else None)
+                i, value = self._option_value(args, i, "find -maxdepth")
+                max_depth = self._parse_find_maxdepth(value)
             elif arg.startswith("-"):
                 raise PIFSCommandError(f"Unsupported find option: {arg}")
             else:
@@ -341,6 +344,7 @@ class PIFSCommandExecutor:
                     metadata_filter=where,
                     limit=limit,
                     max_depth=max_depth,
+                    include_self=max_depth is not None,
                 )
             folders = self.filesystem.browse(
                 path,
@@ -383,12 +387,11 @@ class PIFSCommandExecutor:
             elif arg in {"-n", "--line-number", "-i", "--ignore-case"}:
                 pass
             elif arg == "--where":
-                i += 1
-                where = args[i]
+                i, where = self._option_value(args, i, "grep --where")
             elif arg == "--limit":
-                i += 1
+                i, value = self._option_value(args, i, "grep --limit")
                 limit = self._parse_bounded_int(
-                    args[i], "grep --limit", max_value=self.MAX_GREP_LIMIT
+                    value, "grep --limit", max_value=self.MAX_GREP_LIMIT
                 )
             elif arg.startswith("-"):
                 raise PIFSCommandError(f"Unsupported grep option: {arg}")
@@ -484,20 +487,14 @@ class PIFSCommandExecutor:
         while i < len(args):
             arg = args[i]
             if arg == "--range":
-                i += 1
-                if i >= len(args):
-                    raise PIFSCommandError("cat --range requires a range")
-                location = args[i]
+                i, location = self._option_value(args, i, "cat --range")
             elif arg == "--all":
                 location = "all"
             elif arg == "--structure":
                 structural_mode = "structure"
             elif arg == "--page":
-                i += 1
-                if i >= len(args):
-                    raise PIFSCommandError("cat --page requires a page range")
+                i, page_range = self._option_value(args, i, "cat --page")
                 structural_mode = "page"
-                page_range = args[i]
             elif arg.startswith("-"):
                 raise PIFSCommandError(f"Unsupported cat option: {arg}")
             else:
@@ -540,10 +537,7 @@ class PIFSCommandExecutor:
             if arg == "--schema":
                 schema = True
             elif arg == "--field":
-                i += 1
-                if i >= len(args):
-                    raise PIFSCommandError("stat --field requires a metadata field name")
-                field = args[i]
+                i, field = self._option_value(args, i, "stat --field")
             elif arg.startswith("-"):
                 raise PIFSCommandError(f"Unsupported stat option: {arg}")
             else:
@@ -1353,6 +1347,13 @@ class PIFSCommandExecutor:
         if isinstance(exc, KeyError) and len(exc.args) == 1:
             message = str(exc.args[0])
         return message or exc.__class__.__name__
+
+    @staticmethod
+    def _option_value(args: list[str], index: int, label: str) -> tuple[int, str]:
+        value_index = index + 1
+        if value_index >= len(args):
+            raise PIFSCommandError(f"{label} requires a value")
+        return value_index, args[value_index]
 
     @classmethod
     def _jsonable(cls, value: Any) -> Any:

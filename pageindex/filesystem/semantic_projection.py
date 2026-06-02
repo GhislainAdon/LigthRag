@@ -405,6 +405,11 @@ class EmbeddingCache:
             positions = missing_positions[start : start + max(1, batch_size)]
             batch_texts = [texts[index] for index in positions]
             vectors = embed_with_retry(embedder, batch_texts)
+            if len(vectors) != len(positions):
+                raise ValueError(
+                    "embedding response length mismatch: "
+                    f"requested {len(positions)}, received {len(vectors)}"
+                )
             with self.connect() as conn:
                 conn.executemany(
                     """
@@ -601,11 +606,31 @@ def embed_with_retry(embedder: Any, texts: list[str], *, max_attempts: int = 8) 
     for attempt in range(1, max_attempts + 1):
         try:
             return embedder.embed(texts)
-        except Exception:
-            if attempt >= max_attempts:
+        except Exception as exc:
+            if attempt >= max_attempts or not is_retryable_embedding_error(exc):
                 raise
             time.sleep(min(120.0, 2.0 ** (attempt - 1)))
     raise RuntimeError("unreachable embedding retry state")
+
+
+def is_retryable_embedding_error(exc: Exception) -> bool:
+    retryable = getattr(exc, "retryable", None)
+    if isinstance(retryable, bool):
+        return retryable
+    status_code = getattr(exc, "status_code", None)
+    try:
+        status = int(status_code)
+    except (TypeError, ValueError):
+        status = None
+    if status is not None:
+        if status in {408, 409, 429}:
+            return True
+        if status >= 500:
+            return True
+        if 400 <= status < 500:
+            return False
+    name = exc.__class__.__name__.lower()
+    return any(token in name for token in ("timeout", "connection", "ratelimit"))
 
 
 def encode_vector(vector: list[float]) -> bytes:

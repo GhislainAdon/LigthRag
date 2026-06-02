@@ -277,6 +277,75 @@ def test_embedding_cache_key_separates_model_dimensions(tmp_path):
     assert embedder_1024.calls == 1
 
 
+def test_embedding_cache_rejects_response_length_mismatch(tmp_path):
+    from pageindex.filesystem.semantic_projection import EmbeddingCache
+
+    class ShortEmbedder:
+        def embed(self, texts):
+            return [[1.0, 0.0, 0.0]]
+
+    cache = EmbeddingCache(tmp_path / "cache.sqlite")
+
+    with pytest.raises(ValueError, match="embedding response length mismatch"):
+        cache.embed_texts(
+            ["first", "second"],
+            provider="test",
+            model="fake",
+            embedder=ShortEmbedder(),
+            batch_size=2,
+        )
+
+
+def test_embed_with_retry_does_not_retry_permanent_errors(monkeypatch):
+    from pageindex.filesystem.semantic_projection import embed_with_retry
+
+    sleeps = []
+
+    class PermanentEmbeddingError(Exception):
+        status_code = 401
+
+    class FailingEmbedder:
+        calls = 0
+
+        def embed(self, texts):
+            self.calls += 1
+            raise PermanentEmbeddingError("unauthorized")
+
+    monkeypatch.setattr("pageindex.filesystem.semantic_projection.time.sleep", sleeps.append)
+    embedder = FailingEmbedder()
+
+    with pytest.raises(PermanentEmbeddingError):
+        embed_with_retry(embedder, ["text"])
+
+    assert embedder.calls == 1
+    assert sleeps == []
+
+
+def test_embed_with_retry_retries_transient_errors(monkeypatch):
+    from pageindex.filesystem.semantic_projection import embed_with_retry
+
+    sleeps = []
+
+    class TransientEmbeddingError(Exception):
+        status_code = 500
+
+    class FlakyEmbedder:
+        calls = 0
+
+        def embed(self, texts):
+            self.calls += 1
+            if self.calls == 1:
+                raise TransientEmbeddingError("server error")
+            return [[1.0, 0.0, 0.0]]
+
+    monkeypatch.setattr("pageindex.filesystem.semantic_projection.time.sleep", sleeps.append)
+    embedder = FlakyEmbedder()
+
+    assert embed_with_retry(embedder, ["text"]) == [[1.0, 0.0, 0.0]]
+    assert embedder.calls == 2
+    assert sleeps == [1.0]
+
+
 def test_summary_projection_dimension_mismatch_preserves_existing_index(tmp_path):
     from pageindex.filesystem.semantic_projection import SummaryProjectionIndexer
 
