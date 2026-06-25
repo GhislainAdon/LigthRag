@@ -18,11 +18,12 @@ from pathlib import Path
 from pprint import pprint
 from types import SimpleNamespace as config
 
+from .config import get_llm_params
+
 # Backward compatibility: support CHATGPT_API_KEY as alias for OPENAI_API_KEY
 if not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
     os.environ["OPENAI_API_KEY"] = os.getenv("CHATGPT_API_KEY")
 
-litellm.drop_params = True
 
 async def call_llm(prompt, api_key, model="gpt-4.1", temperature=0):
     """Call an LLM to generate a response to a prompt.
@@ -56,7 +57,9 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
             response = litellm.completion(
                 model=model,
                 messages=messages,
-                temperature=0,
+                # Per-call litellm kwargs (default temperature=0, drop_params=True);
+                # configure via config.set_llm_params(...) — never the litellm global.
+                **get_llm_params(),
             )
             content = response.choices[0].message.content
             if return_finish_reason:
@@ -86,7 +89,7 @@ async def llm_acompletion(model, prompt):
             response = await litellm.acompletion(
                 model=model,
                 messages=messages,
-                temperature=0,
+                **get_llm_params(),  # per-call kwargs; never the litellm global
             )
             return response.choices[0].message.content
         except Exception as e:

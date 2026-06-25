@@ -7,6 +7,8 @@ import re
 import asyncio
 import PyPDF2
 
+from ..config import get_llm_params
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,11 +25,12 @@ def llm_completion(model, prompt, chat_history=None, return_finish_reason=False)
     messages = list(chat_history) + [{"role": "user", "content": prompt}] if chat_history else [{"role": "user", "content": prompt}]
     for i in range(max_retries):
         try:
-            litellm.drop_params = True
             response = litellm.completion(
                 model=model,
                 messages=messages,
-                temperature=0,
+                # Per-call litellm kwargs (default temperature=0, drop_params=True);
+                # configure via config.set_llm_params(...) — never the litellm global.
+                **get_llm_params(),
             )
             content = response.choices[0].message.content
             if return_finish_reason:
@@ -52,11 +55,10 @@ async def llm_acompletion(model, prompt):
     messages = [{"role": "user", "content": prompt}]
     for i in range(max_retries):
         try:
-            litellm.drop_params = True
             response = await litellm.acompletion(
                 model=model,
                 messages=messages,
-                temperature=0,
+                **get_llm_params(),  # per-call kwargs; never the litellm global
             )
             return response.choices[0].message.content
         except Exception as e:

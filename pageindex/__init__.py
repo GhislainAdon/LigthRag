@@ -6,7 +6,7 @@ from .retrieve import get_document, get_document_structure, get_page_content
 
 # SDK exports
 from .client import PageIndexClient, LocalClient, CloudClient
-from .config import IndexConfig
+from .config import IndexConfig, set_llm_params
 from .collection import Collection
 from .parser.protocol import ContentNode, ParsedDocument, DocumentParser
 from .storage.protocol import StorageEngine
@@ -26,6 +26,7 @@ __all__ = [
     "LocalClient",
     "CloudClient",
     "IndexConfig",
+    "set_llm_params",
     "Collection",
     "ContentNode",
     "ParsedDocument",
