@@ -7,7 +7,7 @@ __pycache__
 .codex/
 logs/
 examples/pifs_workspace/
-examples/Benchmark/
+examples/
 /CONTEXT.md
 /docs/pifs-core-alignment/
 /pyproject.toml
