@@ -921,6 +921,112 @@ class SQLiteFileSystemStore:
             ).fetchall()
         return [row["file_ref"] for row in rows]
 
+    def count_files(
+        self,
+        *,
+        scope: Optional[dict[str, Any]] = None,
+        metadata_filter: Optional[dict[str, Any]] = None,
+    ) -> int:
+        where = ["f.deleted_at IS NULL"]
+        params: list[Any] = []
+        scope_sql, scope_params = self._scope_sql(scope)
+        if scope_sql:
+            where.append(scope_sql)
+            params.extend(scope_params)
+        metadata_sql, metadata_params = self._metadata_filter_sql(metadata_filter)
+        where.extend(metadata_sql)
+        params.extend(metadata_params)
+        with self.connect() as conn:
+            row = conn.execute(
+                f"""
+                SELECT COUNT(DISTINCT f.file_ref) AS file_count
+                FROM files f
+                WHERE {" AND ".join(where)}
+                """,
+                params,
+            ).fetchone()
+        return int(row["file_count"] if row is not None else 0)
+
+    def list_metadata_axes(
+        self,
+        *,
+        scope: Optional[dict[str, Any]] = None,
+        metadata_filter: Optional[dict[str, Any]] = None,
+        exclude_fields: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        where = ["f.deleted_at IS NULL", "mv.value_text != ''"]
+        params: list[Any] = []
+        scope_sql, scope_params = self._scope_sql(scope)
+        if scope_sql:
+            where.append(scope_sql)
+            params.extend(scope_params)
+        metadata_sql, metadata_params = self._metadata_filter_sql(metadata_filter)
+        where.extend(metadata_sql)
+        params.extend(metadata_params)
+        if exclude_fields:
+            placeholders = ", ".join("?" for _ in sorted(exclude_fields))
+            where.append(f"mf.name NOT IN ({placeholders})")
+            params.extend(sorted(exclude_fields))
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT mf.name, COUNT(DISTINCT mv.value_text) AS value_count
+                FROM metadata_values mv
+                JOIN metadata_fields mf ON mf.field_id = mv.field_id
+                JOIN files f ON f.file_ref = mv.file_ref
+                WHERE {" AND ".join(where)}
+                GROUP BY mf.name
+                ORDER BY mf.name
+                """,
+                params,
+            ).fetchall()
+        return [
+            {"name": row["name"], "value_count": int(row["value_count"] or 0)}
+            for row in rows
+        ]
+
+    def list_metadata_values(
+        self,
+        field: str,
+        *,
+        scope: Optional[dict[str, Any]] = None,
+        metadata_filter: Optional[dict[str, Any]] = None,
+        limit: int = 51,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        where = [
+            "f.deleted_at IS NULL",
+            "mf.name = ?",
+            "mv.value_text != ''",
+        ]
+        params: list[Any] = [field]
+        scope_sql, scope_params = self._scope_sql(scope)
+        if scope_sql:
+            where.append(scope_sql)
+            params.extend(scope_params)
+        metadata_sql, metadata_params = self._metadata_filter_sql(metadata_filter)
+        where.extend(metadata_sql)
+        params.extend(metadata_params)
+        params.extend([limit, offset])
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT mv.value_text AS value, COUNT(DISTINCT f.file_ref) AS file_count
+                FROM metadata_values mv
+                JOIN metadata_fields mf ON mf.field_id = mv.field_id
+                JOIN files f ON f.file_ref = mv.file_ref
+                WHERE {" AND ".join(where)}
+                GROUP BY mv.value_text
+                ORDER BY file_count DESC, mv.value_text
+                LIMIT ? OFFSET ?
+                """,
+                params,
+            ).fetchall()
+        return [
+            {"value": row["value"], "file_count": int(row["file_count"] or 0)}
+            for row in rows
+        ]
+
     def _search_once(
         self,
         match_query: str | None,

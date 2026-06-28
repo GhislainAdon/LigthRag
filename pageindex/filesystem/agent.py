@@ -53,9 +53,11 @@ BASH_TOOL_DESCRIPTION = """
 Run a command in the PageIndex FileSystem virtual shell. This is not a real
 operating-system shell. The tool is read-only and always returns JSON.
 Use only: tree, browse, stat, cat, grep, and ls as an exact alias for tree -L 1.
-Start broad workspace questions with tree. Then choose a folder and run
-browse <folder> "<query>" for document discovery. Use browse -R only after
-inspecting plausible folder scopes or rephrasing. Browse returns document
+Start broad workspace questions with tree. Then choose a physical folder,
+inspect metadata axes such as @year or @ticker with tree, and copy returned
+scope paths into later commands. Run browse <scope> "<query>" for document
+discovery. Use browse -R only after inspecting plausible folder scopes or
+rephrasing. Browse returns document
 candidates only, not final evidence. Use stat only for identity, status, or
 metadata. Use cat <file> --structure before any cat <file> --page N[-M] for
 that file. Use grep <query> <file> only as a single-document lexical fallback.
@@ -71,10 +73,12 @@ Tool policy:
 - Use only tree, browse, stat, cat, grep, and ls as an alias for tree -L 1.
 - Folder paths such as /documents are positional command targets; never put folder paths in --where.
 - Start with tree to understand workspace and folder structure before document retrieval.
-- After choosing a folder, use browse <folder> "<query>" for relevance-ranked document candidates; quote multi-word queries, for example browse /documents "Federal Reserve".
+- After choosing a folder, use tree to inspect metadata axes such as @year and copy the returned scope paths instead of handwriting encoded values.
+- After choosing a folder or scope, use browse <scope> "<query>" for relevance-ranked document candidates; quote multi-word queries, for example browse /documents "Federal Reserve".
 - If browse misses: inspect sibling or child folders with tree, browse another plausible folder, rephrase the query and browse again, then use browse -R from a broader folder.
 - Only after that persistence protocol may you say the workspace lacks evidence.
 - browse uses summary retrieval only; do not use browse --space.
+- Use metadata scope paths for exact filters. Keep --where as a fallback for OR, IN, or contains only when tree paths cannot express the predicate.
 - browse candidates are not final evidence. After selecting candidates, verify the relevant facts with cat or grep before making source-backed claims.
 - Use grep <query> <path|file_ref|document_id> for a selected single file only.
 - Do not use find, recursive grep, folder grep, pipes, schema browsing, batch metadata commands, browse spaces, implicit cat reads, or general-knowledge fallback.

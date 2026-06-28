@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Optional, Union
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from .metadata import MetadataQueryEngine
 from .store import (
@@ -16,7 +16,7 @@ from .store import (
     metadata_text,
     normalize_path,
 )
-from .types import OpenResult, SearchResult
+from .types import OpenResult, PIFSQueryScope, SearchResult
 
 if TYPE_CHECKING:
     from ..client import PageIndexClient
@@ -403,6 +403,152 @@ class PageIndexFileSystem:
             max_depth=max_depth,
         )
 
+    def resolve_query_scope(self, path: str) -> PIFSQueryScope:
+        normalized = normalize_path(path)
+        if self._folder_exists(normalized):
+            return PIFSQueryScope(path=normalized, folder_path=normalized)
+
+        parts = [part for part in normalized.strip("/").split("/") if part]
+        folder_path = "/"
+        remainder = parts
+        for index in range(len(parts), -1, -1):
+            candidate = "/" + "/".join(parts[:index]) if index else "/"
+            if self._folder_exists(candidate):
+                folder_path = candidate
+                remainder = parts[index:]
+                break
+
+        if not remainder:
+            return PIFSQueryScope(path=normalized, folder_path=folder_path)
+
+        metadata_filter: dict[str, str] = {}
+        index = 0
+        while index < len(remainder):
+            segment = remainder[index]
+            if not segment.startswith("@"):
+                if index == 0:
+                    raise KeyError(f"Unknown folder path: {normalized}")
+                raise ValueError(
+                    "Metadata axes must come after the physical folder prefix; "
+                    "inspect the physical folder first, then append @field/value buckets. "
+                    "Use the path returned by tree for values containing '/'."
+                )
+            field = unquote(segment[1:])
+            self.metadata.validate_field_name(field)
+            if not self.store.metadata_field_exists(field):
+                raise ValueError("Unknown metadata axis; run tree <scope> to inspect available @field axes.")
+            if field in metadata_filter:
+                raise ValueError(
+                    "A metadata field can appear only once in a scope path; "
+                    "choose one value or use browse --where for advanced predicates."
+                )
+            if index + 1 >= len(remainder):
+                return PIFSQueryScope(
+                    path=normalized,
+                    folder_path=folder_path,
+                    metadata_filter=metadata_filter,
+                    metadata_axis=field,
+                )
+            value_segment = remainder[index + 1]
+            if value_segment.startswith("@"):
+                raise ValueError(
+                    "Metadata axis paths require @field/value; run tree <scope>/@field to inspect values."
+                )
+            metadata_filter[field] = unquote(value_segment)
+            index += 2
+
+        return PIFSQueryScope(
+            path=normalized,
+            folder_path=folder_path,
+            metadata_filter=metadata_filter,
+        )
+
+    def merge_scope_filter(
+        self,
+        scope: PIFSQueryScope,
+        metadata_filter: dict[str, Any] | str | None,
+    ) -> dict[str, Any] | None:
+        parsed = self.metadata.parse_filter(metadata_filter)
+        if scope.metadata_axis is not None:
+            raise ValueError(
+                "Metadata axis paths require @field/value; run tree <scope>/@field to inspect values."
+            )
+        if not parsed:
+            return dict(scope.metadata_filter) or None
+        overlap = set(scope.metadata_filter).intersection(self.metadata.filter_fields(parsed))
+        if overlap:
+            raise ValueError(
+                "Do not constrain the same metadata field in both the path and --where; "
+                "move the predicate into one place."
+            )
+        if not scope.metadata_filter:
+            return parsed
+        return {**scope.metadata_filter, **parsed}
+
+    def scope_file_count(self, scope: PIFSQueryScope) -> int:
+        return self.store.count_files(
+            scope={"folder_path": scope.folder_path, "recursive": True},
+            metadata_filter=scope.metadata_filter or None,
+        )
+
+    def scope_folders(
+        self,
+        scope: PIFSQueryScope,
+        *,
+        max_depth: int | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        return self.store.find_folders(
+            scope.folder_path,
+            metadata_filter=scope.metadata_filter or None,
+            limit=limit,
+            max_depth=max_depth,
+            include_self=False,
+        )
+
+    def scope_metadata_axes(self, scope: PIFSQueryScope) -> list[dict[str, Any]]:
+        return self.store.list_metadata_axes(
+            scope={"folder_path": scope.folder_path, "recursive": True},
+            metadata_filter=scope.metadata_filter or None,
+            exclude_fields=set(scope.metadata_filter),
+        )
+
+    def scope_metadata_values(
+        self,
+        scope: PIFSQueryScope,
+        *,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        if scope.metadata_axis is None:
+            return [], False
+        rows = self.store.list_metadata_values(
+            scope.metadata_axis,
+            scope={"folder_path": scope.folder_path, "recursive": True},
+            metadata_filter=scope.metadata_filter or None,
+            limit=page_size + 1,
+            offset=(page - 1) * page_size,
+        )
+        has_more = len(rows) > page_size
+        return rows[:page_size], has_more
+
+    def scope_stat(self, path: str) -> dict[str, Any]:
+        scope = self.resolve_query_scope(path)
+        data = {
+            "path": scope.path,
+            "folder_path": scope.folder_path,
+            "metadata_filter": dict(scope.metadata_filter),
+            "file_count": self.scope_file_count(scope),
+            "available_axes": [item["name"] for item in self.scope_metadata_axes(scope)],
+        }
+        if scope.metadata_axis is not None:
+            data["metadata_axis"] = scope.metadata_axis
+        return data
+
+    @staticmethod
+    def encode_scope_segment(segment: Any) -> str:
+        return quote(str(segment), safe="")
+
     def browse_semantic_files(
         self,
         path: str,
@@ -416,7 +562,8 @@ class PageIndexFileSystem:
         metadata_filter: Optional[dict[str, Any] | str] = None,
     ) -> dict[str, Any]:
         path = normalize_path(path)
-        self.store.folder_info(path)
+        query_scope = self.resolve_query_scope(path)
+        self.store.folder_info(query_scope.folder_path)
         query_text = self._query_text(retrieval_query or query).strip()
         if not query_text:
             raise ValueError("browse requires a query")
@@ -441,8 +588,9 @@ class PageIndexFileSystem:
             raise ValueError(
                 f"browse --space {space} is not available; available spaces: {available}"
             )
-        parsed_filter = self.metadata.parse_filter(metadata_filter)
-        scope = {"folder_path": path, "recursive": recursive}
+        parsed_filter = self.merge_scope_filter(query_scope, metadata_filter)
+        effective_recursive = recursive or bool(query_scope.metadata_filter)
+        scope = {"folder_path": query_scope.folder_path, "recursive": effective_recursive}
         scope_file_refs = self.store.file_refs_for_scope(
             scope=scope,
             metadata_filter=parsed_filter,
@@ -485,7 +633,7 @@ class PageIndexFileSystem:
             ]
             folder_path = self._preferred_folder_path(
                 folder_paths,
-                path,
+                query_scope.folder_path,
                 entry.folder_path,
             )
             display_title = self.store.membership_display_name(file_ref, folder_path) or entry.title
@@ -526,8 +674,8 @@ class PageIndexFileSystem:
             "mode": "files",
             "retrieval": f"{space}_vector",
             "query": query,
-            "scope": path,
-            "recursive": recursive,
+            "scope": query_scope.path,
+            "recursive": effective_recursive,
             "space": space,
             "available_spaces": list(available_spaces),
             "page": page,
@@ -1611,6 +1759,13 @@ class PageIndexFileSystem:
             return None
         path = scope.get("folder_path") or scope.get("path")
         return normalize_path(path) if path else None
+
+    def _folder_exists(self, path: str) -> bool:
+        try:
+            self.store.folder_info(path)
+            return True
+        except KeyError:
+            return False
 
     @staticmethod
     def _query_text(query: Union[str, list[str], None]) -> str:

@@ -70,6 +70,14 @@ class MetadataField:
 
 
 @dataclass(frozen=True)
+class PIFSQueryScope:
+    path: str
+    folder_path: str
+    metadata_filter: dict[str, str] = field(default_factory=dict)
+    metadata_axis: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class CommandResult:
     command: str
     data: Any

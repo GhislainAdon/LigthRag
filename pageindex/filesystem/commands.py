@@ -17,6 +17,7 @@ class PIFSCommandExecutor:
     FORBIDDEN_SUBSTRINGS = (";", "`", "$(", "||", "&&", "\n", "\r")
     FORBIDDEN_TOKENS = {"|", ">", "<", ">>", "<<", "&"}
     BROWSE_PAGE_SIZE = 10
+    TREE_VALUE_PAGE_SIZE = 50
     MAX_TREE_DEPTH = 4
     MAX_TREE_FOLDERS = 200
     MAX_GREP_MATCHES = 20
@@ -32,10 +33,10 @@ class PIFSCommandExecutor:
         return "\n".join(
             [
                 "Available PIFS BashLike commands:",
-                "- tree <folder> [-L depth]: folder structure orientation",
-                "- ls <folder>: exact alias for tree <folder> -L 1",
-                '- browse <folder> "<query>" [--page N] [--where JSON] [-R]: summary-ranked document discovery',
-                "- stat <file>: single document identity/status/metadata",
+                "- tree <scope> [-L depth] [--page N]: folder and metadata-scope orientation",
+                "- ls <scope>: exact alias for tree <scope> -L 1",
+                '- browse <scope> "<query>" [--page N] [--where JSON] [-R]: summary-ranked document discovery',
+                "- stat <file|scope>: single document identity or scope metadata",
                 "- cat <file> --structure | --page N[-M]: structure-first document reads",
                 "- grep <query> <file>: single-document lexical evidence fallback",
             ]
@@ -79,32 +80,74 @@ class PIFSCommandExecutor:
     def _cmd_tree(self, args: list[str]) -> tuple[dict[str, Any], list[str]]:
         path = "/"
         depth = 2
+        page = 1
         i = 0
         while i < len(args):
             arg = args[i]
             if arg == "-L":
                 i, value = self._option_value(args, i, "tree -L")
                 depth = self._parse_positive_int(value, "tree -L")
+            elif arg == "--page":
+                i, value = self._option_value(args, i, "tree --page")
+                page = self._parse_positive_int(value, "tree --page")
             elif arg.startswith("-"):
                 raise PIFSCommandError(f"Unsupported tree option: {arg}")
             else:
                 path = arg
             i += 1
         depth = min(depth, self.MAX_TREE_DEPTH)
-        listing = self.filesystem.browse(
-            path,
-            recursive=True,
-            limit=self.MAX_TREE_FOLDERS,
+        scope = self.filesystem.resolve_query_scope(path)
+        if scope.metadata_axis is not None:
+            rows, has_more = self.filesystem.scope_metadata_values(
+                scope,
+                page=page,
+                page_size=self.TREE_VALUE_PAGE_SIZE,
+            )
+            root = self._scope_root(scope, file_count=self.filesystem.scope_file_count(scope))
+            root["folders"] = [
+                {
+                    "path": self._join_scope_path(
+                        scope.path,
+                        self.filesystem.encode_scope_segment(row["value"]),
+                    ),
+                    "name": str(row["value"]),
+                    "type": "metadata_value",
+                    "value": row["value"],
+                    "file_count": row["file_count"],
+                    "folders": [],
+                }
+                for row in rows
+            ]
+            root["children_count"] = len(root["folders"])
+            data = {
+                "tree": root,
+                "total_folders": len(root["folders"]),
+                "depth": depth,
+                "truncated": has_more,
+                "pagination": {
+                    "page": page,
+                    "page_size": self.TREE_VALUE_PAGE_SIZE,
+                    "has_more": has_more,
+                    "next_page": page + 1 if has_more else None,
+                },
+            }
+            next_steps = [f'browse {shlex.quote(scope.path)}/<value> "<query>"']
+            return data, next_steps
+        if page != 1:
+            raise PIFSCommandError("tree --page is only supported by metadata axis paths like /documents/@field")
+        folders = self.filesystem.scope_folders(
+            scope,
             max_depth=depth,
+            limit=self.MAX_TREE_FOLDERS,
         )
-        folders = listing.get("folders", [])
+        axes = self.filesystem.scope_metadata_axes(scope)
         data = {
-            "tree": self._folder_tree(path, folders),
-            "total_folders": len(folders),
+            "tree": self._folder_tree(scope, folders, axes),
+            "total_folders": len(folders) + len(axes),
             "depth": depth,
             "truncated": len(folders) >= self.MAX_TREE_FOLDERS,
         }
-        next_steps = [f'browse {shlex.quote(self._normalize_folder_path(path))} "<query>"']
+        next_steps = [f'browse {shlex.quote(scope.path)} "<query>"']
         return data, next_steps
 
     def _cmd_browse(self, args: list[str]) -> tuple[dict[str, Any], list[str]]:
@@ -138,24 +181,46 @@ class PIFSCommandExecutor:
         path, query = positionals
         if not str(path).startswith("/"):
             raise PIFSCommandError("browse target must be a PIFS folder path like /documents")
+        scope = self.filesystem.resolve_query_scope(path)
+        if scope.metadata_axis is not None:
+            raise PIFSCommandError(
+                "Metadata axis paths require @field/value; run tree <scope>/@field to inspect values."
+            )
+        merged_filter = self.filesystem.merge_scope_filter(scope, where)
+        effective_recursive = recursive or bool(scope.metadata_filter)
         if not self.filesystem.has_semantic_channel("summary"):
             self.filesystem.configure_existing_projection_retrieval()
         if not self.filesystem.has_semantic_channel("summary"):
             raise PIFSCommandError("browse summary retrieval is not available")
         payload = self.filesystem.browse_semantic_files(
-            self._normalize_folder_path(path),
+            scope.folder_path,
             query,
             retrieval_query=query,
-            recursive=recursive,
+            recursive=effective_recursive,
             space="summary",
             page=page,
             page_size=self.BROWSE_PAGE_SIZE,
-            metadata_filter=where,
+            metadata_filter=merged_filter,
         )
         documents = [self._document_hit(row) for row in payload.get("data", [])]
         next_steps = []
         if payload.get("has_more"):
             next_steps.append(self._browse_command(path, query, recursive=recursive, where=where, page=page + 1))
+        scope_payload = {
+            "folder": scope.folder_path,
+            "recursive": effective_recursive,
+            "query": query,
+            "where": self._json_filter(where),
+            "retrieval": "summary",
+        }
+        if scope.path != scope.folder_path or merged_filter is not None:
+            scope_payload.update(
+                {
+                    "path": scope.path,
+                    "folder_path": scope.folder_path,
+                    "metadata_filter": merged_filter,
+                }
+            )
         return {
             "documents": documents,
             "pagination": {
@@ -164,13 +229,7 @@ class PIFSCommandExecutor:
                 "has_more": bool(payload.get("has_more")),
                 "next_page": page + 1 if payload.get("has_more") else None,
             },
-            "scope": {
-                "folder": self._normalize_folder_path(path),
-                "recursive": recursive,
-                "query": query,
-                "where": self._json_filter(where),
-                "retrieval": "summary",
-            },
+            "scope": scope_payload,
         }, next_steps
 
     def _cmd_stat(self, args: list[str]) -> tuple[dict[str, Any], list[str]]:
@@ -182,7 +241,13 @@ class PIFSCommandExecutor:
             raise PIFSCommandError("stat accepts only one document target")
         if len(args) != 1:
             raise PIFSCommandError("stat accepts exactly one document target")
-        return {"document": self._document_stat(args[0])}, []
+        target = args[0]
+        try:
+            return {"document": self._document_stat(target)}, []
+        except (KeyError, ValueError):
+            if not target.startswith("/"):
+                raise
+        return {"scope": self.filesystem.scope_stat(target)}, []
 
     def _cmd_cat(self, args: list[str]) -> tuple[dict[str, Any], list[str]]:
         if not args:
@@ -233,33 +298,47 @@ class PIFSCommandExecutor:
             "matches": self._grep_file_matches(target, query),
         }, []
 
-    def _folder_tree(self, path: str, folders: list[dict[str, Any]]) -> dict[str, Any]:
-        root = self.filesystem.folder_info(path)
-        root_path = self._normalize_folder_path(path)
+    def _folder_tree(
+        self,
+        scope: Any,
+        folders: list[dict[str, Any]],
+        axes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        root_key = self._normalize_folder_path(scope.folder_path)
+        root = self._scope_root(scope, file_count=self.filesystem.scope_file_count(scope))
         nodes = {
-            root_path: {
-                "path": root_path,
-                "name": root.get("name") or ("/" if root_path == "/" else root_path.rsplit("/", 1)[-1]),
-                "file_count": root.get("file_count", 0),
-                "children_count": root.get("children_count", 0),
-                "folders": [],
-            }
+            root_key: root
         }
         for folder in sorted(folders, key=lambda item: item["path"]):
-            folder_path = self._normalize_folder_path(folder["path"])
-            nodes[folder_path] = {
-                "path": folder_path,
-                "name": folder.get("name") or folder_path.rsplit("/", 1)[-1],
-                "file_count": folder.get("file_count", 0),
+            physical_path = self._normalize_folder_path(folder["path"])
+            nodes[physical_path] = {
+                "path": self._scoped_folder_path(scope, physical_path),
+                "name": folder.get("name") or physical_path.rsplit("/", 1)[-1],
+                "type": "folder",
+                "file_count": folder.get("matched_files", 0) or folder.get("file_count", 0),
                 "children_count": folder.get("children_count", 0),
                 "folders": [],
             }
         for folder_path, node in sorted(nodes.items(), key=lambda item: item[0].count("/")):
-            if folder_path == root_path:
+            if folder_path == root_key:
                 continue
             parent = folder_path.rsplit("/", 1)[0] or "/"
-            nodes.get(parent, nodes[root_path])["folders"].append(node)
-        return nodes[root_path]
+            nodes.get(parent, nodes[root_key])["folders"].append(node)
+        nodes[root_key]["folders"].extend(
+            {
+                "path": self._join_scope_path(
+                    scope.path,
+                    f"@{self.filesystem.encode_scope_segment(axis['name'])}",
+                ),
+                "name": f"@{axis['name']}",
+                "type": "metadata_axis",
+                "value_count": axis["value_count"],
+                "folders": [],
+            }
+            for axis in axes
+        )
+        nodes[root_key]["children_count"] = len(nodes[root_key]["folders"])
+        return nodes[root_key]
 
     def _document_hit(self, row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -410,6 +489,48 @@ class PIFSCommandExecutor:
         if not value or value == "/":
             return "/"
         return "/" + value.strip("/")
+
+    def _scope_root(self, scope: Any, *, file_count: int) -> dict[str, Any]:
+        if getattr(scope, "metadata_axis", None):
+            name = f"@{scope.metadata_axis}"
+            node_type = "metadata_axis"
+        elif getattr(scope, "metadata_filter", None):
+            name = str(next(reversed(scope.metadata_filter.values())))
+            node_type = "metadata_value"
+        else:
+            info = self.filesystem.folder_info(scope.folder_path)
+            name = info.get("name") or ("/" if scope.folder_path == "/" else scope.folder_path.rsplit("/", 1)[-1])
+            node_type = "folder"
+        return {
+            "path": scope.path,
+            "name": name,
+            "type": node_type,
+            "file_count": file_count,
+            "children_count": 0,
+            "folders": [],
+        }
+
+    def _scoped_folder_path(self, scope: Any, folder_path: str) -> str:
+        path = self._normalize_folder_path(folder_path)
+        for field, value in getattr(scope, "metadata_filter", {}).items():
+            path = self._join_scope_path(
+                path,
+                f"@{self.filesystem.encode_scope_segment(field)}",
+            )
+            path = self._join_scope_path(
+                path,
+                self.filesystem.encode_scope_segment(value),
+            )
+        return path
+
+    @staticmethod
+    def _join_scope_path(base: str, segment: str) -> str:
+        base_path = str(base or "/").rstrip("/")
+        if not base_path:
+            base_path = "/"
+        if base_path == "/":
+            return f"/{segment}"
+        return f"{base_path}/{segment}"
 
     @staticmethod
     def _success(data: dict[str, Any], *, next_steps: list[str] | None = None) -> str:

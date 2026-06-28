@@ -135,6 +135,19 @@ class MetadataQueryEngine:
             }
         return {"fields": fields}
 
+    def filter_fields(self, metadata_filter: dict[str, Any] | None) -> set[str]:
+        if not metadata_filter:
+            return set()
+        fields = set()
+        for key, condition in metadata_filter.items():
+            if key in self.LOGICAL_OPERATORS:
+                for item in condition:
+                    if isinstance(item, dict):
+                        fields.update(self.filter_fields(item))
+                continue
+            fields.add(str(key))
+        return fields
+
     @staticmethod
     def _validate_scalar(value: Any, *, context: str) -> None:
         if isinstance(value, bool):
