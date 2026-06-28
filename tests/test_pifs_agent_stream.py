@@ -243,8 +243,8 @@ class PIFSAgentStreamTest(unittest.TestCase):
 
     def test_prompt_routes_topic_retrieval_through_browse_after_folder_exploration(self):
         self.assertIn("Start with tree", AGENT_TOOL_POLICY)
-        self.assertIn('browse <folder> "<query>"', AGENT_TOOL_POLICY)
-        self.assertIn("Use browse -R only after", BASH_TOOL_DESCRIPTION)
+        self.assertIn('browse <scope> "<query>"', AGENT_TOOL_POLICY)
+        self.assertIn("Use browse -R", BASH_TOOL_DESCRIPTION)
         self.assertIn("If browse misses", AGENT_TOOL_POLICY)
         self.assertIn("browse -R from a broader folder", AGENT_TOOL_POLICY)
         self.assertIn("browse candidates are not final evidence", AGENT_TOOL_POLICY)
@@ -253,6 +253,13 @@ class PIFSAgentStreamTest(unittest.TestCase):
         self.assertIn("cat <target> --page", AGENT_TOOL_POLICY)
         self.assertIn("Use grep <query> <path|file_ref|document_id> for a selected single file", AGENT_TOOL_POLICY)
         self.assertIn("Use grep <query> <file> only as a single-document lexical fallback", BASH_TOOL_DESCRIPTION)
+
+    def test_prompt_allows_recursive_browse_for_low_signal_tree_labels(self):
+        self.assertIn("Start with tree", AGENT_TOOL_POLICY)
+        self.assertIn('browse <scope> "<query>"', AGENT_TOOL_POLICY)
+        self.assertIn("low-signal folder or virtual-node labels", AGENT_TOOL_POLICY)
+        self.assertIn("browse -R", AGENT_TOOL_POLICY)
+        self.assertIn("low-signal folder or virtual-node labels", BASH_TOOL_DESCRIPTION)
 
     def test_default_agent_prompts_do_not_suggest_legacy_semantic_commands(self):
         prompt_surface = "\n".join(

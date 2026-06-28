@@ -56,8 +56,8 @@ Use only: tree, browse, stat, cat, grep, and ls as an exact alias for tree -L 1.
 Start broad workspace questions with tree. Then choose a physical folder,
 inspect metadata-derived virtual axes such as @year or @ticker with tree, and
 copy returned scope paths into later commands. Run browse <scope> "<query>" for document
-discovery. Use browse -R only after inspecting plausible folder scopes or
-rephrasing. Browse returns document
+discovery. Use browse -R when low-signal folder or virtual-node labels do not
+help prune the query, or after scoped browse misses/rephrasing. Browse returns document
 candidates only, not final evidence. Use stat only for identity, status, or
 metadata. Use cat <file> --structure before any cat <file> --page N[-M] for
 that file. Use grep <query> <file> only as a single-document lexical fallback.
@@ -75,6 +75,7 @@ Tool policy:
 - Start with tree to understand workspace and folder structure before document retrieval.
 - After choosing a folder, use tree to inspect metadata-derived virtual axis nodes such as @year, then tree <scope>/@field to inspect metadata-derived virtual value nodes, and copy returned scope paths instead of handwriting encoded values.
 - After choosing a folder or scope, use browse <scope> "<query>" for relevance-ranked document candidates; quote multi-word queries, for example browse /documents "Federal Reserve".
+- Use browse -R from a broader folder when low-signal folder or virtual-node labels do not help prune the query.
 - If browse misses: inspect sibling or child folders with tree, browse another plausible folder, rephrase the query and browse again, then use browse -R from a broader folder.
 - Only after that persistence protocol may you say the workspace lacks evidence.
 - browse uses summary retrieval only; do not use browse --space.
