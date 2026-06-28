@@ -54,8 +54,8 @@ Run a command in the PageIndex FileSystem virtual shell. This is not a real
 operating-system shell. The tool is read-only and always returns JSON.
 Use only: tree, browse, stat, cat, grep, and ls as an exact alias for tree -L 1.
 Start broad workspace questions with tree. Then choose a physical folder,
-inspect metadata axes such as @year or @ticker with tree, and copy returned
-scope paths into later commands. Run browse <scope> "<query>" for document
+inspect metadata-derived virtual axes such as @year or @ticker with tree, and
+copy returned scope paths into later commands. Run browse <scope> "<query>" for document
 discovery. Use browse -R only after inspecting plausible folder scopes or
 rephrasing. Browse returns document
 candidates only, not final evidence. Use stat only for identity, status, or
@@ -73,7 +73,7 @@ Tool policy:
 - Use only tree, browse, stat, cat, grep, and ls as an alias for tree -L 1.
 - Folder paths such as /documents are positional command targets; never put folder paths in --where.
 - Start with tree to understand workspace and folder structure before document retrieval.
-- After choosing a folder, use tree to inspect metadata axes such as @year and copy the returned scope paths instead of handwriting encoded values.
+- After choosing a folder, use tree to inspect metadata-derived virtual axis nodes such as @year, then tree <scope>/@field to inspect metadata-derived virtual value nodes, and copy returned scope paths instead of handwriting encoded values.
 - After choosing a folder or scope, use browse <scope> "<query>" for relevance-ranked document candidates; quote multi-word queries, for example browse /documents "Federal Reserve".
 - If browse misses: inspect sibling or child folders with tree, browse another plausible folder, rephrase the query and browse again, then use browse -R from a broader folder.
 - Only after that persistence protocol may you say the workspace lacks evidence.

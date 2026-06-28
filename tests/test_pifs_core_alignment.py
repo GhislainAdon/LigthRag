@@ -312,6 +312,8 @@ class PIFSCoreAlignmentTest(unittest.TestCase):
                 "run cat <target> --structure before the first cat <target> --page",
                 instructions,
             )
+            self.assertIn("metadata-derived virtual axis", instructions)
+            self.assertIn("metadata-derived virtual value", instructions)
 
     def test_projection_surface_is_summary(self):
         from pageindex.filesystem.core import (

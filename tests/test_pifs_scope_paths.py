@@ -325,3 +325,68 @@ class PIFSScopePathTest(unittest.TestCase):
             self.assertEqual([item["document_id"] for item in payload["data"]], ["doc_shared"])
             self.assertEqual(payload["data"][0]["folder_path"], "/zdocs")
             self.assertTrue(payload["data"][0]["path"].startswith("/zdocs/"))
+
+    def test_one_document_is_reachable_through_multiple_metadata_virtual_paths(self):
+        from pageindex.filesystem import PIFSCommandExecutor, PageIndexFileSystem
+
+        with tempfile.TemporaryDirectory() as tmp:
+            from pathlib import Path
+
+            root = Path(tmp)
+            filesystem = PageIndexFileSystem(workspace=root / "workspace")
+            file_ref = register_markdown(
+                filesystem,
+                root,
+                "doc_contract",
+                "/documents/contracts",
+                title="apple-renewal.md",
+                metadata={"vendor": "Apple", "year": 2024, "doc_type": "contract"},
+            )
+            filesystem.semantic_retrieval_backend = BrowseBackend(
+                ["doc_contract"],
+                file_refs_by_document_id={"doc_contract": file_ref},
+            )
+            executor = PIFSCommandExecutor(filesystem)
+
+            tree_root = _payload(executor.execute("tree /documents -L 1"))
+            self.assertTrue(tree_root["success"])
+            root_nodes = tree_root["data"]["tree"]["folders"]
+            self.assertIn(
+                "/documents/@vendor",
+                [item["path"] for item in root_nodes if item["type"] == "metadata_axis"],
+            )
+
+            tree_vendor = _payload(executor.execute("tree /documents/@vendor"))
+            self.assertTrue(tree_vendor["success"])
+            self.assertEqual(
+                [
+                    item["type"]
+                    for item in tree_vendor["data"]["tree"]["folders"]
+                    if item["path"] == "/documents/@vendor/Apple"
+                ],
+                ["metadata_value"],
+            )
+
+            vendor = _payload(
+                executor.execute('browse /documents/@vendor/Apple "renewal contract"')
+            )
+            year = _payload(executor.execute('browse /documents/@year/2024 "renewal contract"'))
+
+            self.assertTrue(vendor["success"])
+            self.assertTrue(year["success"])
+            self.assertEqual(
+                [item["document_id"] for item in vendor["data"]["documents"]],
+                ["doc_contract"],
+            )
+            self.assertEqual(
+                [item["document_id"] for item in year["data"]["documents"]],
+                ["doc_contract"],
+            )
+            self.assertEqual(
+                vendor["data"]["scope"]["metadata_filter"],
+                {"vendor": "Apple"},
+            )
+            self.assertEqual(
+                year["data"]["scope"]["metadata_filter"],
+                {"year": "2024"},
+            )
