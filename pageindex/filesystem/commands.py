@@ -18,7 +18,7 @@ class PIFSCommandExecutor:
     FORBIDDEN_TOKENS = {"|", ">", "<", ">>", "<<", "&"}
     BROWSE_PAGE_SIZE = 10
     TREE_VALUE_PAGE_SIZE = 50
-    MAX_TREE_DEPTH = 4
+    MAX_TREE_DEPTH = 10
     MAX_TREE_FOLDERS = 200
     MAX_GREP_MATCHES = 20
     MAX_PAGE_SPAN = 5
@@ -79,7 +79,7 @@ class PIFSCommandExecutor:
 
     def _cmd_tree(self, args: list[str]) -> tuple[dict[str, Any], list[str]]:
         path = "/"
-        depth = 2
+        depth = 10
         page = 1
         i = 0
         while i < len(args):
