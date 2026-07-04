@@ -256,6 +256,154 @@ python3 ingest.py --input doc.pdf --model ollama_chat/qwen3:8b
 
 Tips for local models: `PAGEINDEX_MAX_CONCURRENCY` (default 10) caps concurrent LLM calls — lower it for small Ollama servers. Responses that wrap JSON in prose (common with small local models) are handled by a balanced-brace fallback parser.
 
+## 💬 Web chat & frontend integration
+
+You don't need to code a RAG to use one. This fork ships a small HTTP API ([`server.py`](server.py), FastAPI) plus a ready-made chat page ([`webui/index.html`](webui/index.html)):
+
+```bash
+OPENAI_API_KEY=sk-... docker compose up web
+# or with a local model:  MODEL=ollama_chat/qwen3:8b docker compose --profile ollama up web ollama
+```
+
+Open **http://localhost:8000** → upload a PDF/Word/PowerPoint/scanned document → chat with it. Interactive API docs at `/api/docs`.
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/documents` | List indexed documents |
+| `POST /api/documents` | Multipart upload → convert (Pandoc/MarkItDown/OCR) → index |
+| `POST /api/chat` | `{doc_id, question}` → `{answer, sources}` (LLM tree search + grounded answer) |
+
+CORS is open, so any frontend can call the API directly. Minimal examples:
+
+<details>
+<summary><b>Vanilla JS / HTML</b></summary>
+
+```html
+<script>
+async function ask(docId, question) {
+  const r = await fetch('http://localhost:8000/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ doc_id: docId, question })
+  });
+  const { answer, sources } = await r.json();
+  console.log(answer, sources);
+}
+</script>
+```
+</details>
+
+<details>
+<summary><b>React</b></summary>
+
+```jsx
+import { useState } from 'react';
+
+export function DocChat({ docId }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+
+  async function send(e) {
+    e.preventDefault();
+    const question = input.trim();
+    if (!question) return;
+    setMessages(m => [...m, { role: 'user', text: question }]);
+    setInput('');
+    const r = await fetch('http://localhost:8000/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc_id: docId, question }),
+    });
+    const { answer, sources } = await r.json();
+    setMessages(m => [...m, { role: 'bot', text: answer, sources }]);
+  }
+
+  return (
+    <div>
+      {messages.map((m, i) => <p key={i}><b>{m.role}:</b> {m.text}</p>)}
+      <form onSubmit={send}>
+        <input value={input} onChange={e => setInput(e.target.value)} />
+        <button>Send</button>
+      </form>
+    </div>
+  );
+}
+```
+</details>
+
+<details>
+<summary><b>Angular</b></summary>
+
+```ts
+// doc-chat.service.ts
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+export interface ChatResponse {
+  answer: string;
+  sources: { node_id: string; title: string; pages?: [number, number] }[];
+}
+
+@Injectable({ providedIn: 'root' })
+export class DocChatService {
+  private http = inject(HttpClient);
+  private api = 'http://localhost:8000/api';
+
+  documents(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.api}/documents`);
+  }
+
+  upload(file: File): Observable<{ doc_id: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<{ doc_id: string }>(`${this.api}/documents`, form);
+  }
+
+  ask(docId: string, question: string): Observable<ChatResponse> {
+    return this.http.post<ChatResponse>(`${this.api}/chat`,
+      { doc_id: docId, question });
+  }
+}
+```
+
+```ts
+// doc-chat.component.ts (standalone)
+import { Component, input, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { DocChatService, ChatResponse } from './doc-chat.service';
+
+@Component({
+  selector: 'app-doc-chat',
+  standalone: true,
+  imports: [FormsModule],
+  template: `
+    @for (m of messages(); track $index) {
+      <p><b>{{ m.role }}:</b> {{ m.text }}</p>
+    }
+    <input [(ngModel)]="question" (keyup.enter)="send()" />
+    <button (click)="send()">Send</button>
+  `,
+})
+export class DocChatComponent {
+  docId = input.required<string>();
+  question = '';
+  messages = signal<{ role: string; text: string }[]>([]);
+
+  constructor(private chat: DocChatService) {}
+
+  send() {
+    const q = this.question.trim();
+    if (!q) return;
+    this.messages.update(m => [...m, { role: 'user', text: q }]);
+    this.question = '';
+    this.chat.ask(this.docId(), q).subscribe((r: ChatResponse) =>
+      this.messages.update(m => [...m, { role: 'bot', text: r.answer }]));
+  }
+}
+```
+</details>
+
 ## 🔧 Upstream issues fixed in this fork
 
 Verified against the code and covered by [`tests/test_upstream_issues.py`](tests/test_upstream_issues.py):

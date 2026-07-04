@@ -14,7 +14,8 @@ WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir "markitdown[all]" pytesseract pillow pytest
+    && pip install --no-cache-dir "markitdown[all]" pytesseract pillow pytest \
+        fastapi uvicorn python-multipart
 
 COPY . .
 

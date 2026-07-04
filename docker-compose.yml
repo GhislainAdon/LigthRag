@@ -38,6 +38,18 @@ services:
     extends: iroko
     command: ["-m", "pytest", "tests/", "-v"]
 
+  # Web chat UI + HTTP API on http://localhost:8000
+  #   OPENAI_API_KEY=sk-... docker compose up web
+  web:
+    extends: iroko
+    command: ["-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      MODEL: ${MODEL:-}
+      IROKO_WORKSPACE: /app/results/workspace
+      OCR_LANG: ${OCR_LANG:-eng}
+    ports:
+      - "8000:8000"
+
   # Local LLM backend — opt in with: docker compose --profile ollama up -d
   ollama:
     image: ollama/ollama:latest
