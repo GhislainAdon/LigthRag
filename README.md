@@ -263,6 +263,7 @@ You don't need to code a RAG to use one. This fork ships a small HTTP API ([`ser
 ```bash
 OPENAI_API_KEY=sk-... docker compose up web
 # or with a local model:  MODEL=ollama_chat/qwen3:8b docker compose --profile ollama up web ollama
+# or copy env.example to .env once and just run:  docker compose up web
 ```
 
 Open **http://localhost:8000** → upload a PDF/Word/PowerPoint/scanned document → chat with it. Interactive API docs at `/api/docs`.

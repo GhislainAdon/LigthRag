@@ -38,6 +38,26 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'],
 
 client = PageIndexClient(model=MODEL, workspace=WORKSPACE)
 
+PROVIDER_KEY_VARS = ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY',
+                     'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'AZURE_API_KEY',
+                     'MISTRAL_API_KEY', 'GROQ_API_KEY')
+
+
+def _require_llm():
+    """Fail fast with a clear message instead of letting every LLM call
+    retry into an empty response that looks like 'no relevant section'."""
+    model = client.model or ''
+    if 'ollama' in model:
+        return
+    if any(os.getenv(k) for k in PROVIDER_KEY_VARS):
+        return
+    raise HTTPException(
+        status_code=503,
+        detail='No LLM configured. Set OPENAI_API_KEY (or another provider '
+               'key) in the environment / .env file, or use a local model: '
+               "MODEL=ollama_chat/qwen3:8b docker compose --profile ollama "
+               'up web ollama')
+
 
 class ChatRequest(BaseModel):
     doc_id: str
@@ -143,6 +163,7 @@ def list_documents():
 
 @app.post('/api/documents')
 def upload_document(file: UploadFile):
+    _require_llm()
     filename = os.path.basename(file.filename or 'document')
     upload_path = os.path.join(_uploads_dir(), filename)
     with open(upload_path, 'wb') as out:
@@ -160,6 +181,7 @@ def upload_document(file: UploadFile):
 
 @app.post('/api/chat')
 def chat(req: ChatRequest):
+    _require_llm()
     if req.doc_id not in client.documents:
         raise HTTPException(status_code=404, detail='Document not found')
     tree = client.get_document_structure(req.doc_id)
@@ -167,6 +189,11 @@ def chat(req: ChatRequest):
     # Step 1 — LLM tree search: which nodes can answer the question?
     search = llm_completion(client.model, TREE_SEARCH_PROMPT.format(
         question=req.question, tree=tree))
+    if not search:
+        raise HTTPException(
+            status_code=502,
+            detail='LLM call failed after retries — check your API key, '
+                   'MODEL setting, and network (see server logs).')
     node_ids = [str(n) for n in extract_json(search).get('node_list', [])]
 
     doc = client.documents[req.doc_id]
