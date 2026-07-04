@@ -103,10 +103,37 @@ def ocr_pdf_to_markdown(pdf_path, md_path, lang):
         f.write('\n'.join(parts))
 
 
+def heuristic_headers(lines):
+    """Promote heading-like plain-text lines to markdown headers so flat
+    documents (.txt, headingless conversions) produce a usable tree
+    instead of a single giant node.
+
+    Conservative on purpose — only two patterns:
+      - ALL-CAPS lines ('CONTEXTE DE LA MISSION')              -> ##
+      - short capitalized lines ending with ':' ('Systèmes :') -> ###
+    """
+    out = []
+    changed = False
+    for line in lines:
+        s = line.strip()
+        letters = [c for c in s if c.isalpha()]
+        if (len(letters) >= 4 and len(s) <= 80
+                and sum(c.isupper() for c in letters) / len(letters) >= 0.9):
+            out.append('## ' + s)
+            changed = True
+        elif (s.endswith(':') and len(s) <= 40 and s[:1].isupper()
+              and len(letters) >= 4):
+            out.append('### ' + s.rstrip(':').strip())
+            changed = True
+        else:
+            out.append(line)
+    return out, changed
+
+
 def ensure_headers(md_path, fallback_title):
     """md_to_tree builds the tree from '#' headers. If the conversion produced
-    none (e.g. a docx without heading styles), wrap the document under a
-    single root header so the pipeline still yields a usable node.
+    none (e.g. a docx without heading styles), try to recover structure from
+    heading-like lines, then wrap everything under a root header.
 
     Header detection mirrors pageindex.page_index_md.extract_nodes_from_markdown
     but stays dependency-free so --convert-only works without the package's
@@ -125,8 +152,14 @@ def ensure_headers(md_path, fallback_title):
             has_header = True
             break
     if not has_header:
-        print('warning: no headings found in converted Markdown; '
-              'wrapping content under a single root node', file=sys.stderr)
+        lines, changed = heuristic_headers(content.split('\n'))
+        if changed:
+            print('warning: no markdown headings found; promoted '
+                  'heading-like lines to headers', file=sys.stderr)
+            content = '\n'.join(lines)
+        else:
+            print('warning: no headings found in converted Markdown; '
+                  'wrapping content under a single root node', file=sys.stderr)
         with open(md_path, 'w', encoding='utf-8') as f:
             f.write(f'# {fallback_title}\n\n{content}')
 
