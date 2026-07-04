@@ -44,12 +44,114 @@ PROVIDER_KEY_VARS = ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY',
                      'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'AZURE_API_KEY',
                      'MISTRAL_API_KEY', 'GROQ_API_KEY')
 
+# Auto-pull state for the selected Ollama model: idle | pulling | ready | error
+_ollama_pull = {'status': 'idle', 'detail': ''}
+
+
+def _ollama_model_name():
+    model = client.model or ''
+    for prefix in ('ollama_chat/', 'ollama/'):
+        if model.startswith(prefix):
+            return model[len(prefix):]
+    return None
+
+
+def _ollama_base():
+    return os.getenv('OLLAMA_API_BASE', 'http://localhost:11434').rstrip('/')
+
+
+def _ollama_has_model(name, timeout=5):
+    """True if the model is already in Ollama's library. Raises on
+    connection problems."""
+    import urllib.request
+    with urllib.request.urlopen(_ollama_base() + '/api/tags',
+                                timeout=timeout) as r:
+        have = {m['name'] for m in json.load(r).get('models', [])}
+    return name in have or f'{name}:latest' in have
+
+
+def _pull_ollama_model_if_missing():
+    """If the selected model is not in Ollama's library yet, ask Ollama to
+    pull it (no home-grown download code — Ollama does the work). Runs in a
+    background thread at startup; requests meanwhile get a clear 503."""
+    import time
+    import urllib.request
+    name = _ollama_model_name()
+    if not name:
+        return
+    base = _ollama_base()
+    try:
+        # The container network (or Ollama itself) may still be coming up
+        # right after startup — retry before declaring an error.
+        for attempt in range(5):
+            try:
+                found = _ollama_has_model(name)
+                break
+            except Exception:
+                if attempt == 4:
+                    raise
+                time.sleep(3)
+        if found:
+            _ollama_pull['status'] = 'ready'
+            return
+        _ollama_pull['status'] = 'pulling'
+        print(f"Model '{name}' not found in Ollama — pulling it now "
+              '(this can take a while)...')
+        body = json.dumps({'name': name, 'stream': False}).encode()
+        req = urllib.request.Request(base + '/api/pull', data=body,
+                                     headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=3600) as r:
+            status = json.load(r).get('status', '')
+        if status == 'success':
+            _ollama_pull['status'] = 'ready'
+            print(f"Model '{name}' pulled successfully.")
+        else:
+            _ollama_pull.update(status='error', detail=f'pull ended with: {status}')
+    except Exception as e:
+        _ollama_pull.update(status='error', detail=str(e))
+        print(f"Ollama model check/pull failed: {e}")
+
+
+@app.on_event('startup')
+def _startup_model_check():
+    import threading
+    threading.Thread(target=_pull_ollama_model_if_missing, daemon=True).start()
+
 
 def _require_llm():
     """Fail fast with a clear message instead of letting every LLM call
     retry into an empty response that looks like 'no relevant section'."""
     model = client.model or ''
     if 'ollama' in model:
+        if _ollama_pull['status'] == 'pulling':
+            raise HTTPException(
+                status_code=503,
+                detail=f"Model '{_ollama_model_name()}' is being downloaded "
+                       'by Ollama — try again in a few minutes.')
+        if _ollama_pull['status'] == 'error':
+            # Ollama may have (re)started since the failed check — probe
+            # again instead of staying stuck in error.
+            try:
+                if _ollama_has_model(_ollama_model_name()):
+                    _ollama_pull.update(status='ready', detail='')
+                    return
+                import threading
+                _ollama_pull.update(status='pulling', detail='')
+                threading.Thread(target=_pull_ollama_model_if_missing,
+                                 daemon=True).start()
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Model '{_ollama_model_name()}' is being "
+                           'downloaded by Ollama — try again in a few minutes.')
+            except HTTPException:
+                raise
+            except Exception as e:
+                _ollama_pull['detail'] = str(e)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Ollama model '{_ollama_model_name()}' unavailable: "
+                       f"{_ollama_pull['detail']} (check OLLAMA_API_BASE="
+                       f'{_ollama_base()} and that Ollama is running).')
         return
     if any(os.getenv(k) for k in PROVIDER_KEY_VARS):
         return
@@ -57,8 +159,15 @@ def _require_llm():
         status_code=503,
         detail='No LLM configured. Set OPENAI_API_KEY (or another provider '
                'key) in the environment / .env file, or use a local model: '
-               "MODEL=ollama_chat/qwen3:8b docker compose --profile ollama "
+               "MODEL=ollama_chat/gemma4:e2b docker compose --profile ollama "
                'up web ollama')
+
+
+@app.get('/api/health')
+def health():
+    return {'model': client.model,
+            'ollama_model': _ollama_model_name(),
+            'ollama_pull': _ollama_pull}
 
 
 class ChatRequest(BaseModel):

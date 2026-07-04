@@ -254,7 +254,35 @@ python3 ingest.py --input doc.pdf --model ollama_chat/qwen3:8b
 # non-default host: export OLLAMA_API_BASE=http://my-server:11434
 ```
 
+**Auto-pull:** if the selected `ollama_chat/<model>` is not in Ollama's library yet, the web server asks Ollama to pull it automatically at startup (no manual `ollama pull` needed). While the download runs, the API answers `503` with a clear message; check progress at `/api/health`.
+
 Tips for local models: `PAGEINDEX_MAX_CONCURRENCY` (default 10) caps concurrent LLM calls — lower it for small Ollama servers. Responses that wrap JSON in prose (common with small local models) are handled by a balanced-brace fallback parser.
+
+## 🔌 Run without Ollama (llama.cpp, LM Studio, vLLM, ...)
+
+The LLM layer speaks to **any OpenAI-compatible server** — no code change, just `.env`:
+
+```bash
+# 1. Start llama.cpp's server on a GGUF model:
+llama-server -m /path/to/model.gguf --port 8080
+
+# 2. In .env:
+MODEL=openai/local
+OPENAI_API_BASE=http://host.docker.internal:8080/v1   # http://localhost:8080/v1 outside Docker
+OPENAI_API_KEY=dummy                                   # llama.cpp ignores it, litellm requires it
+```
+
+The same three lines work for **LM Studio**, **vLLM**, **llamafile**, or any other OpenAI-compatible endpoint — just adapt the URL.
+
+**Reusing models already downloaded by Ollama** (they are plain GGUF files stored as content-addressed blobs):
+
+```bash
+ollama show --modelfile gemma4:e2b | grep FROM
+# FROM /root/.ollama/models/blobs/sha256-abc123...
+llama-server -m /root/.ollama/models/blobs/sha256-abc123... --port 8080
+```
+
+> ⚠️ This reuse works **one way only**. Ollama's model directory is a content-addressed store (nameless blobs + manifests), **not** a folder of `.gguf` files: never copy hand-downloaded models into it — Ollama won't see them. Keep manually downloaded GGUFs in an ordinary folder (e.g. `./models/`) and point `llama-server -m` at them.
 
 ## 💬 Web chat & frontend integration
 
