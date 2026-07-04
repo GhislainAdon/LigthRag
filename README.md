@@ -197,9 +197,9 @@ python3 run_pageindex.py --md_path /path/to/your/document.md
 > Note: in this mode, we use "#" to determine node headings and their levels. For example, "##" is level 2, "###" is level 3, etc. Make sure your markdown file is formatted correctly. If your Markdown file was converted from a PDF or HTML, we don't recommend using this mode, since most existing conversion tools cannot preserve the original hierarchy. Instead, use our [PageIndex OCR](https://pageindex.ai/blog/ocr), which is designed to preserve it, to convert the PDF to a markdown file and then use this mode.
 </details>
 
-## 📥 Universal Ingestion (this fork)
+## 📥 Universal Ingestion (iroko-rag fork)
 
-This fork adds [`ingest.py`](ingest.py): one entry point for **any** document format, including scanned PDFs.
+**iroko-rag** — named after the iroko, the sacred great tree of West Africa: a fitting home for a tree-index RAG. This fork adds [`ingest.py`](ingest.py): one entry point for **any** document format, including scanned PDFs.
 
 | Input | Route |
 |---|---|
